@@ -1,0 +1,22 @@
+{application, lynkia, [
+    {description, "An OTP application"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {lynkia_app, []}},
+    {applications,
+        [kernel,
+        stdlib
+    ]},
+    {env,[]},
+    {modules, [
+        lynkia_broadcast,
+        lynkia_config,
+        lynkia_utils
+    ]},
+    {licenses, ["Apache 2.0"]},
+    {links, [
+        {"Lasp", "https://lasp-lang.readme.io"},
+        {"Partisan", "https://partisan.cloud"}
+    ]},
+    {build_tools,["rebar3"]}
+]}.
