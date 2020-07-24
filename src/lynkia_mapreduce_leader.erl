@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_mapreduce_leader).
 -include("lynkia.hrl").
 
@@ -17,16 +22,14 @@
     data :: list()
 }).
 
-% @pre -
-% @post -
-start([_Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
-    erlang:spawn(fun() ->
-        State = init(Data, Propagate),
-        listen(State, Propagate)
-    end).
+%% @doc
+start([Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
+    Myself = lynkia_utils:myself(),
+    logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "leader", Round]),
+    State = init(Data, Propagate),
+    listen(State, Propagate).
 
-% @pre -
-% @post -
+%% @doc
 init([Round, Pairs, Reduce, Options] = Data, Propagate) ->
     case Round == 0 of
         true ->
@@ -48,8 +51,7 @@ init([Round, Pairs, Reduce, Options] = Data, Propagate) ->
         data = Data
     }.
 
-% @pre -
-% @post -
+%% @doc
 listen(State, Propagate) ->
     receive
         {notify, NewRound, NewPairs} ->
@@ -59,7 +61,6 @@ listen(State, Propagate) ->
                 worker = Worker,
                 data = [Round, _Pairs, Reduce, Options]
             } when NewRound > Round ->
-                io:format("[MAPREDUCE]: message=~p;observer=~p~n", ["notify", lynkia_utils:myself()]),
                 kill(Deamon),
                 kill(Worker),
                 lynkia_mapreduce_observer:start([
@@ -69,31 +70,30 @@ listen(State, Propagate) ->
                     Options
                 ], Propagate);
             _ ->
-                io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["notify", lynkia_utils:myself()]),
+                % io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["notify", lynkia_utils:myself()]),
                 listen(State, Propagate)
             end;
         stop ->
+            io:format("Leader - Stop~n"),
             case State of #state{deamon = Deamon, worker = Worker} ->
                 kill(Deamon),
-                kill(Worker),
-                io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["stop", lynkia_utils:myself()])
+                kill(Worker)
+                % io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["stop", lynkia_utils:myself()])
             end;
         Message ->
-            io:format("[MAPREDUCE]: message=~p;leader=~p~n", [Message, lynkia_utils:myself()]),
+            % io:format("[MAPREDUCE]: message=~p;leader=~p~n", [Message, lynkia_utils:myself()]),
             listen(State, Propagate)
     end.
 
 % Reduce phase:
 
-% @pre -
-% @post -
+%% @doc
 reduce(Round, InputPairs, Reduce, Options, Propagate) ->
     erlang:spawn(fun() ->
         new_round(Round, InputPairs, Reduce, Options, Propagate)
     end).
 
-% @pre -
-% @post -
+%% @doc
 new_round(Round, InputPairs, Reduce, Options, Propagate) ->
     case Round =< Options#options.max_round of
         false ->
@@ -101,7 +101,8 @@ new_round(Round, InputPairs, Reduce, Options, Propagate) ->
                 {return, [{error, "Max round reached"}]}
             ]);
         true ->
-            io:format("[MAPREDUCE]: round=~p;master=~p~n", [Round, lynkia_utils:myself()]),
+            Myself = lynkia_utils:myself(),
+            logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "leader", Round]),
             start_reduction(
                 Round,
                 InputPairs,
@@ -111,13 +112,11 @@ new_round(Round, InputPairs, Reduce, Options, Propagate) ->
             )
     end.
 
-% @pre -
-% @post -
+%% @doc
 is_irreductible(InputPairs, OutputPairs) ->
     lists:sort(InputPairs) == lists:sort(OutputPairs).
 
-% @pre -
-% @post -
+%% @doc
 start_reduction(Round, InputPairs, Reduce, Options, Propagate) ->
     case dispatch(InputPairs, Reduce, Options) of
         {error, Reason} ->
@@ -149,14 +148,12 @@ start_reduction(Round, InputPairs, Reduce, Options, Propagate) ->
             end
     end.
 
-% @pre -
-% @post -
+%% @doc
 dispatch(InputPairs, Reduce, Options) ->
-    % TODO: Add method fork
+    %% TODO: Add method fork
     lynkia_mapreduce_dispatcher:start(InputPairs, Reduce, Options).
 
-% @pre -
-% @post -
+%% @doc
 repeat(Fun, Delay) ->
     receive
     after Delay ->
@@ -164,8 +161,7 @@ repeat(Fun, Delay) ->
         repeat(Fun, Delay)
     end.
 
-% @pre -
-% @post -
+%% @doc
 send_heartbeat_periodically(Propagate) ->
     erlang:spawn(fun() ->
         repeat(fun() ->
@@ -173,8 +169,7 @@ send_heartbeat_periodically(Propagate) ->
         end, 1000)
     end).
 
-% @pre -
-% @post -
+%% @doc
 kill(Pid) ->
     case erlang:is_process_alive(Pid) of
         true ->
@@ -189,8 +184,7 @@ kill(Pid) ->
 
 -ifdef(TEST).
 
-% @pre -
-% @post -
+%% @doc
 master_1_test() ->
 
     lynkia_sup:start_link(),
@@ -233,8 +227,7 @@ master_1_test() ->
         )
     end.
 
-% @pre -
-% @post -
+%% @doc
 master_2_test() ->
 
     InputPairs = [

@@ -1,6 +1,10 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_spawn).
 -behaviour(gen_server).
-
 -include("lynkia.hrl").
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -18,6 +22,7 @@
 -export([
     schedule/2,
     schedule/3,
+    forward/2,
     debug/0
 ]).
 
@@ -42,13 +47,11 @@
     body :: any()
 }).
 
-% @pre -
-% @post -
+%% @doc
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-% @pre -
-% @post -
+%% @doc
 init([]) ->
     erlang:send_after(?LOG_INTERVAL, ?MODULE, write_log),
     {ok, #{
@@ -58,32 +61,40 @@ init([]) ->
         forwarded_tasks => orddict:new()
     }}.
 
-% @pre -
-% @post -
+%% @doc
+send(Node, Message) ->
+    partisan_peer_service:cast_message(Node, ?MODULE, #message{
+        header = #header{
+            src = lynkia_utils:myself()
+        },
+        body = Message
+    }).
+
+%% @doc
 get_task(ID, State) ->
     Tasks = maps:get(tasks, State),
     orddict:find(ID, Tasks).
 
-% @pre -
-% @post -
+%% @doc
 add_task(Task, State) ->
     ID = Task#task.id,
     maps:update_with(tasks, fun(Tasks) ->
-        % print(State),
+        lynkia_spawn_monitor:on(#lynkia_spawn_add_event{
+            id = ID,
+            target = lynkia_utils:myself(),
+            queue = tasks
+        }),
         orddict:store(ID, Task, Tasks)
     end, State).
 
-% @pre -
-% @post -
+%% @doc
 add_to_queue(Task, State) ->
     ID = Task#task.id,
     maps:update_with(queue, fun(Q) ->
-        % print(State),
         queue:in(ID, Q)
     end, State).
 
-% @pre -
-% @post -
+%% @doc
 worker(Parent, Fun, Args) ->
     Opts = [
         link,
@@ -107,8 +118,7 @@ worker(Parent, Fun, Args) ->
         end
     end, Opts).
 
-% @pre -
-% @post -
+%% @doc
 execute_function(Task) ->
     case Task of #task{
         id = ID,
@@ -126,7 +136,7 @@ execute_function(Task) ->
                 {error, Error} ->
                     Term = {return, ID, Myself, {error, Error}},
                     gen_server:cast(?MODULE, Term);
-                {'EXIT', _Parent, Reason} ->
+                {'EXIT', _Parent, _Reason} ->
                     Term = {return, ID, Myself, killed},
                     gen_server:cast(?MODULE, Term)
             after ?TIMEOUT ->
@@ -137,29 +147,36 @@ execute_function(Task) ->
         end)
     end.
 
-% @pre -
-% @post -
+%% @doc
 add_to_running(Task, State) ->
     maps:update_with(running_tasks, fun(RunningTasks) ->
-        % print(State),
         ID = Task#task.id,
-        Myself = lynkia_utils:myself(),
-        lynkia_spawn_monitor:on_schedule(Myself, ID),
         Pid = execute_function(Task),
+        lynkia_spawn_monitor:on(#lynkia_spawn_add_event{
+            id = ID,
+            target = lynkia_utils:myself(),
+            queue = running
+        }),
         orddict:store(ID, Pid, RunningTasks)
     end, State).
 
-% @pre -
-% @post -
+%% @doc
 add_to_forwarded(Node, Task, State) ->
     ID = Task#task.id,
     maps:update_with(forwarded_tasks, fun(ForwardedTasks) ->
-        % print(State),
+        ID = Task#task.id,
+        send(Node, {schedule, Task#task{
+            hops = [lynkia_utils:myself()|Task#task.hops]
+        }}),
+        lynkia_spawn_monitor:on(#lynkia_spawn_add_event{
+            id = ID,
+            target = Node,
+            queue = forwarded
+        }),
         orddict:store(ID, Node, ForwardedTasks)
     end, State).
 
-% @pre -
-% @post -
+%% @doc
 run_task(N, Q, State) when N > 0 ->
     case queue:out(Q) of
         {empty, _} ->
@@ -179,8 +196,7 @@ run_task(N, Q, State) when N > 0 ->
     end;
 run_task(_N, _Q, State) -> State.
 
-% @pre -
-% @post -
+%% @doc
 run_tasks(State) ->
     case State of
         #{queue := Q, running_tasks := RunningTasks} ->
@@ -188,58 +204,60 @@ run_tasks(State) ->
             run_task(N, Q, State)
     end.
 
-% @pre -
-% @post -
+%% @doc
 is_forwarded(Task, State) ->
     case State of #{forwarded_tasks := ForwardedTasks} ->
         ID = Task#task.id,
         orddict:is_key(ID, ForwardedTasks)
     end.
 
-% @pre -
-% @post -
-forward_task(N, Q, State) when N > 0 ->
+%% @doc
+forward_task(N, Node, Q, State) when N > 0 ->
     case queue:out_r(Q) of
-        {empty, _} ->
-            State;
+        {empty, _} -> State;
         {{value, ID}, Queue} ->
             case get_task(ID, State) of {ok, Task} ->
                 case is_forwarded(Task, State) of
-                    true -> State;
+                    true ->
+                        forward_task(N, Node, Queue, State);
                     false ->
-                        Myself = lynkia_utils:myself(),
                         Hops = Task#task.hops,
-                        case lynkia_spawn_monitor:choose_node(Hops) of
-                            Node when Node == Myself ->
-                                State;
-                            Node ->
-                                lynkia_spawn_monitor:on_schedule(Node, ID),
-                                send(Node, {schedule, Task#task{
-                                    hops = [lynkia_utils:myself()|Task#task.hops]
-                                }}),
+                        case lists:member(Node, Hops) of
+                            true ->
+                                forward_task(N, Node, Queue, State);
+                            false ->
                                 S1 = add_to_forwarded(Node, Task, State),
-                                forward_task(N - 1, Queue, S1)
+                                forward_task(N - 1, Node, Queue, S1)
                         end
                 end
             end
     end;
-forward_task(_N, _Q, State) -> State.
+forward_task(_N, _Node, _Q, State) -> State.
 
-% @pre -
-% @post -
-forward_tasks(State) ->
+%% @doc
+forward_tasks(N, Node, State) ->
     case State of #{queue := Q} ->
-        N = queue:len(Q) - ?MAX_SCHEDULE,
-        forward_task(N, Q, State)
+        case queue:len(Q) > ?FORWARDING_THRESHOLD of
+            true ->
+                {_Q1, Q2} = queue:split(?FORWARDING_THRESHOLD, Q),
+                forward_task(N, Node, Q2, State);
+            false ->
+                State
+        end
     end.
 
-% @pre -
-% @post -
-remove_from_running(ID, State) ->
+%% @doc
+remove_from_running(ID, From, Reason, State) ->
     case State of #{running_tasks := RunningTasks} ->
         case orddict:find(ID, RunningTasks) of
             {ok, Pid} ->
                 kill(Pid),
+                lynkia_spawn_monitor:on(#lynkia_spawn_remove_event{
+                    id = ID,
+                    from = From,
+                    reason = Reason,
+                    queue = running
+                }),
                 maps:update(
                     running_tasks,
                     orddict:erase(ID, RunningTasks),
@@ -249,23 +267,31 @@ remove_from_running(ID, State) ->
         end
     end.
 
-% @pre -
-% @post -
-remove_from_forwarded(ID, State) ->
+%% @doc
+remove_from_forwarded(ID, From, Reason, State) ->
     case State of #{forwarded_tasks := ForwardedTasks} ->
-        case orddict:is_key(ID, ForwardedTasks) of
-            true ->
+        case orddict:find(ID, ForwardedTasks) of
+            {ok, Worker} ->
+                case Worker == From of 
+                    true -> ok;
+                    false -> send(Worker, {kill, ID})
+                end,
+                lynkia_spawn_monitor:on(#lynkia_spawn_remove_event{
+                    id = ID,
+                    from = From,
+                    reason = Reason,
+                    queue = forwarded
+                }),
                 maps:update(
                     forwarded_tasks,
                     orddict:erase(ID, ForwardedTasks),
                     State
                 );
-            false -> State
+            error -> State
         end
     end.
 
-% @pre -
-% @post -
+%% @doc
 remove_from_queue(ID, State) ->
     case State of #{queue := Q} ->
         maps:update(
@@ -277,58 +303,44 @@ remove_from_queue(ID, State) ->
         )
     end.
 
-% @pre -
-% @post -
-remove_task(ID, State) ->
+%% @doc
+remove_task(ID, From, Reason, State) ->
     case State of #{tasks := Tasks} ->
-        maps:put(
-            tasks,
-            orddict:erase(ID, Tasks),
-            State
-        )
+        case orddict:find(ID, Tasks) of
+            {ok, _} ->
+                % logger:info("[SPAWN-RESULT]: task=~p;node=~p~n", [ID, From]),
+                lynkia_spawn_monitor:on(#lynkia_spawn_remove_event{
+                    id = ID,
+                    from = From,
+                    reason = Reason,
+                    queue = tasks
+                }),
+                maps:put(
+                    tasks,
+                    orddict:erase(ID, Tasks),
+                    State
+                );
+            error -> State
+        end
     end.
 
-% @pre -
-% @post -
-get_worker(ID, State) ->
-    case State of #{forwarded_tasks := ForwardedTasks} ->
-        orddict:find(ID, ForwardedTasks)
-    end.
-
-% @pre -
-% @post -
-print(State) ->
-    case State of #{
-        queue := Q,
-        running_tasks := RunningTasks,
-        forwarded_tasks := ForwardedTasks
-    } ->
-        ?PRINT("running_tasks=~p;forwarded_tasks=~p;queue=~p~n", [
-            orddict:size(RunningTasks),
-            orddict:size(ForwardedTasks),
-            queue:len(Q)
-        ]),
-        ok
-    end.
-
-% =============================================
 % Handle cast:
-% =============================================
 
-% @pre -
-% @post -
+%% @doc
 handle_cast(#message{header = Header, body = Body}, State) ->
     case Body of
         {return, ID, Result} ->
             Node = Header#header.src,
             gen_server:cast(?MODULE, {return, ID, Node, Result});
+        {kill, ID} ->
+            Node = Header#header.src,
+            gen_server:cast(?MODULE, {kill, ID, Node});
         _ ->
             gen_server:cast(?MODULE, Body)
     end,
     {noreply, State};
 
-% @pre -
-% @post -
+%% @doc
 handle_cast({schedule, Task}, State) ->
     case State of #{tasks := Tasks} ->
         ID = Task#task.id,
@@ -339,70 +351,51 @@ handle_cast({schedule, Task}, State) ->
                 S1 = add_task(Task, State),
                 S2 = add_to_queue(Task, S1),
                 S3 = run_tasks(S2),
-                S4 = forward_tasks(S3),
-                {noreply, S4}
+                {noreply, S3}
         end
     end;
 
-% @pre -
-% @post -
+%% @doc
 handle_cast({return, ID, Node, Result}, State) ->
-
-    case lynkia_utils:myself() of
-        Myself when Myself == Node ->
-            % ?PRINT("Returning: ID=~p Result=~p~n", [ID, Result]),
-            lynkia_spawn_monitor:on_return(Myself, ID),
-            case get_worker(ID, State) of
-                {ok, Worker} ->
-                    send(Worker, {kill, ID}),
-                    lynkia_spawn_monitor:on_delete(Worker, ID);
-                error -> ok
-            end;
-        Myself ->
-            % ?PRINT("Receiving from ~p: ID=~p Result=~p~n", [Node, ID, Result]),
-            lynkia_spawn_monitor:on_return(Node, ID),
-            lynkia_spawn_monitor:on_delete(Myself, ID)
-    end,
-
     case get_task(ID, State) of
         {ok, #task{
             callback = Callback,
             hops = Hops
         }} ->
             case Hops of
-                [] -> erlang:apply(Callback, [Result]);
-                [Hop|_] -> send(Hop, {return, ID, Result})
+                [] ->
+                    erlang:apply(Callback, [Result]);
+                [Hop|_] ->
+                    send(Hop, {return, ID, Result})
             end,
-            S1 = remove_from_forwarded(ID, State),
-            S2 = remove_from_running(ID, S1),
+            S1 = remove_from_forwarded(ID, Node, return, State),
+            S2 = remove_from_running(ID, Node, return, S1),
             S3 = remove_from_queue(ID, S2),
-            S4 = remove_task(ID, S3),
+            S4 = remove_task(ID, Node, return, S3),
             S5 = run_tasks(S4),
             {noreply, S5};
         error ->
             {noreply, State}
     end;
 
-% @pre -
-% @post -
-handle_cast({kill, ID}, State) ->
-    Myself = lynkia_utils:myself(),
-    case get_worker(ID, State) of
-        {ok, Worker} ->
-            send(Worker, {kill, ID}),
-            lynkia_spawn_monitor:on_delete(Worker, ID);
-        error -> ok
-    end,
-    lynkia_spawn_monitor:on_delete(Myself, ID),
-    S1 = remove_from_forwarded(ID, State),
-    S2 = remove_from_running(ID, S1),
+%% @doc
+handle_cast({kill, ID, Node}, State) ->
+    S1 = remove_from_forwarded(ID, Node, kill, State),
+    S2 = remove_from_running(ID, Node, kill, S1),
     S3 = remove_from_queue(ID, S2),
-    S4 = remove_task(ID, S3),
+    S4 = remove_task(ID, Node, kill, S3),
     S5 = run_tasks(S4),
     {noreply, S5};
 
-% @pre -
-% @post -
+%% @doc
+handle_cast({forward, N, Node}, State) ->
+    Myself = lynkia_utils:myself(),
+    case Node == Myself of
+        true -> State;
+        false -> {noreply, forward_tasks(N, Node, State)}
+    end;
+
+%% @doc
 handle_cast(debug, State) ->
     case State of #{
         queue := Q,
@@ -418,23 +411,20 @@ handle_cast(debug, State) ->
     end,
     {noreply, State};
 
-% @pre -
-% @post -
+%% @doc
 handle_cast(Message, State) ->
     ?PRINT("Unknown message~p~n", [Message]),
     {noreply, State}.
 
 % Call:
 
-% @pre -
-% @post -
+%% @doc
 handle_call(_Request, _From, State) ->
     {noreply, State}.
 
 % Info:
 
-% @pre -
-% @post -
+%% @doc
 handle_info(write_log, State) ->
     case State of #{
         queue := Q,
@@ -451,15 +441,13 @@ handle_info(write_log, State) ->
     erlang:send_after(?LOG_INTERVAL, ?MODULE, write_log),
     {noreply, State};
 
-% @pre -
-% @post -
+%% @doc
 handle_info(_Info, State) ->
     {noreply, State}.
 
 % Terminate:
 
-% @pre -
-% @post -
+%% @doc
 terminate(_Reason, State) ->
     case State of #{running_tasks := RunningTasks} ->
         L = orddict:from_list(RunningTasks),
@@ -470,8 +458,9 @@ terminate(_Reason, State) ->
 
 % Helpers:
 
-% @pre Pid is a process
-% @post The process Pid is killed
+%% @doc
+% Pid is a process
+% The process Pid is killed
 kill(Pid) ->
     case Pid of
         undefined -> {noreply};
@@ -480,10 +469,11 @@ kill(Pid) ->
 
 % API:
 
-% @pre  Fun is a function
+%% @doc
+%  Fun is a function
 %       Args is a list of arguments for Fun
 %       Callback is a function
-% @post Create a task containing Fun, Args and Callback and schedule it
+% Create a task containing Fun, Args and Callback and schedule it
 schedule(Fun, Args, Callback) ->
     Task = #task{
         id = erlang:unique_integer(),
@@ -493,8 +483,7 @@ schedule(Fun, Args, Callback) ->
     },
     gen_server:cast(?MODULE, {schedule, Task}).
 
-% @pre -
-% @post -
+%% @doc
 schedule(Fun, Args) ->
     Self = self(),
     schedule(Fun, Args, fun(Result) ->
@@ -504,17 +493,10 @@ schedule(Fun, Args) ->
         Results
     end.
 
-% @pre -
-% @post -
-send(Node, Message) ->
-    partisan_peer_service:cast_message(Node, ?MODULE, #message{
-        header = #header{
-            src = lynkia_utils:myself()
-        },
-        body = Message
-    }).
+%% @doc
+forward(N, Node) ->
+    gen_server:cast(?MODULE, {forward, N, Node}).
 
-% @pre -
-% @post -
+%% @doc
 debug() ->
     gen_server:cast(?MODULE, debug).

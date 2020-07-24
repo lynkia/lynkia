@@ -2,14 +2,11 @@
 -include("lynkia.hrl").
 -compile(export_all).
 
-% test:map_reduce_test_2().
-
 %%%-------------------------------------------------------------------
 %%% Tests: lynkia_spawn
 %%%-------------------------------------------------------------------
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_async(N, MaxDelay) when MaxDelay > 0 ->
     lynkia_utils:repeat(N, fun(K) ->
         lynkia:spawn(fun() ->
@@ -21,8 +18,7 @@ spawn_test_async(N, MaxDelay) when MaxDelay > 0 ->
         end)
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_sync(N, MaxDelay) when MaxDelay > 0 ->
     lynkia_utils:repeat(N, fun(K) ->
         erlang:spawn(fun() ->
@@ -35,8 +31,7 @@ spawn_test_sync(N, MaxDelay) when MaxDelay > 0 ->
         end)
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_async_burst(N, M, MaxDelay) ->
     lynkia_utils:repeat(N, fun(I) ->
         timer:sleep(120), % Wait 120ms before the next burst
@@ -51,8 +46,7 @@ spawn_test_async_burst(N, M, MaxDelay) ->
         end)
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_sync_burst(N, M, MaxDelay) ->
     lynkia_utils:repeat(N, fun(I) ->
         % timer:sleep(120), % Wait 120ms before the next burst
@@ -68,8 +62,7 @@ spawn_test_sync_burst(N, M, MaxDelay) ->
         end)
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_async_error() ->
     lynkia:spawn(fun() ->
         1 / 0 % Error
@@ -77,8 +70,7 @@ spawn_test_async_error() ->
         ?PRINT("Result ~p~n", [Result])
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_async_timeout() ->
     lynkia:spawn(fun() ->
         timer:sleep(5000)
@@ -86,8 +78,7 @@ spawn_test_async_timeout() ->
         ?PRINT("Result ~p~n", [Result])
     end).
 
-% @pre -
-% @post -
+%% @doc
 spawn_test_debug() ->
     lynkia_utils:repeat(10, fun(_) ->
         lynkia:spawn(fun() ->
@@ -103,8 +94,7 @@ spawn_test_debug() ->
 %%% Tests: lynkia_map_reduce
 %%%-------------------------------------------------------------------
 
-% @pre -
-% @post -
+%% @doc
 map_reduce_test_1() ->
 
     Adapters = [
@@ -129,13 +119,11 @@ map_reduce_test_1() ->
         end
     end).
 
-% @pre -
-% @post -
-map_reduce_test_2() ->
-
+%% @doc
+map_reduce_test_2(Path) ->
     Adapters = [
         {lynkia_mapreduce_adapter_file, [
-            {"dataset/lorem-300k.txt", fun(Lines) ->
+            {Path, fun(Lines) ->
                 lists:flatmap(fun(Line) ->
                     Separator = " ",
                     Words = string:tokens(Line, Separator),
@@ -146,7 +134,7 @@ map_reduce_test_2() ->
     ],
 
     Reduce = fun(Key, Values) ->
-        % timer:sleep(20),
+        timer:sleep(10),
         [{Key, lists:sum(Values)}]
     end,
 
@@ -160,7 +148,7 @@ map_reduce_test_2() ->
         case Result of
             {ok, Pairs} ->
                 Count = fun({_, N}, Total) -> N + Total end,
-                ?PRINT("Pairs=~p~n", [Pairs]),
+                % ?PRINT("Pairs=~p~n", [Pairs]),
                 ?PRINT("Words=~p~n", [lists:foldl(Count, 0, Pairs)]),
                 ?PRINT("Length=~p~n", [erlang:length(Pairs)]);
             {error, Reason} ->
@@ -168,8 +156,7 @@ map_reduce_test_2() ->
         end
     end).
 
-% @pre -
-% @post -
+%% @doc
 map_reduce_test_3() ->
 
     Var = {<<"var">>, state_gset},

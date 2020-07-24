@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_mapreduce).
 -behavior(gen_server).
 -include("lynkia.hrl").
@@ -23,53 +28,39 @@
     debug/0
 ]).
 
-% test:map_reduce_test_1().
-% test:map_reduce_test_2().
-% lynkia_mapreduce:gc().
-% lynkia_mapreduce:debug().
-% lynkia_broadcast:broadcast(lynkia_mapreduce, debug).
-
-% @pre -
-% @post -
+%% @doc
 generate_unique_id() ->
     case lasp_unique:unique() of {ok, ID} ->
         {lynkia_utils:myself(), ID}
     end.
 
-% @pre -
-% @post -
+%% @doc
 broadcast(Message) ->
     lynkia_broadcast:broadcast(lynkia_mapreduce, Message).
 
-% @pre -
-% @post -
+%% @doc
 gen_propagator(ID, Callback) ->
     fun(Message) ->
         case Message of
             {notify, [Round, Pairs, Reduce, Options]} ->
-                logger:info("[MAPREDUCE]: message=~p;round=~p;pairs=~p~n", ["notify", Round, Pairs]),
                 broadcast({notify, [
                     ID, Round, Pairs, Reduce, Options, Callback
                 ]});
             {return, [Result]} ->
-                logger:info("[MAPREDUCE]: message=~p;result=~p~n", ["return", Result]),
                 Pid = erlang:whereis(lynkia_mapreduce),
                 Pid ! {return, [ID, Result]},
                 broadcast({return, [ID, Result]});
             heartbeat ->
-                logger:info("[MAPREDUCE]: message=~p", ["heartbeat"]),
                 broadcast({heartbeat, [ID]});
             _ -> ok
         end
     end.
 
-% @pre -
-% @post -
+%% @doc
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-% @pre -
-% @post -
+%% @doc
 init([]) ->
     {ok, #{
         timer => erlang:spawn(fun() -> ok end),
@@ -77,8 +68,7 @@ init([]) ->
         finished => orddict:new()
     }}.
 
-% @pre -
-% @post -
+%% @doc
 schedule_gc(State) ->
     case maps:find(timer, State) of
         {ok, Timer} ->
@@ -101,35 +91,35 @@ schedule_gc(State) ->
             }
     end.
 
-% @pre -
-% @post -
+%% @doc
 add_to_running(State, ID, Entry) ->
-    case State of #{running := Running} ->
-        State#{
+    S1 = schedule_gc(State),
+    case S1 of #{running := Running} ->
+        S1#{
             running => orddict:store(ID, Entry, Running)
         }
     end.
 
 % Handle cast:
 
-% @pre  Args is a list of arguments
-% @post Start a new MapReduce and the current node is the master
+%% @doc  
+% Args is a list of arguments
+% Start a new MapReduce and the current node is the master
 handle_cast({schedule, [Adapters, Reduce, Options, Callback]}, State) ->
     ID = generate_unique_id(),
     case lynkia_mapreduce_map:start(Adapters, Options) of
         {ok, Pairs} ->
             Data = [0, Pairs, Reduce, Options],
-            Pid = lynkia_mapreduce_leader:start(Data, gen_propagator(ID, Callback)),
-            S1 = schedule_gc(State),
-            S2 = add_to_running(S1, ID, #{
+            Pid = erlang:spawn(fun() ->
+                lynkia_mapreduce_leader:start(Data, gen_propagator(ID, Callback))
+            end),
+            {noreply, add_to_running(State, ID, #{
                 pid => Pid,
                 callback => Callback
-            }),
-            {noreply, S2}
+            })}
     end;
 
-% @pre -
-% @post -
+%% @doc
 handle_cast(gc, State) ->
     case State of #{running := Running, finished := Finished} ->
         FilteredFinished = orddict:filter(fun(Key, Value) ->
@@ -149,30 +139,26 @@ handle_cast(gc, State) ->
         end
     end;
 
-% @pre -
-% @post -
+%% @doc
 handle_cast(debug, State) ->
     io:format("State=~p~n", [State]),
     {noreply, State};
 
-% @pre -
-% @post -
+%% @doc
 handle_cast(_Request, State) ->
     io:format("Mapreduce: Unknown message~n"),
     {noreply, State}.
 
 % Handle call:
 
-% @pre -
-% @post -
+%% @doc
 handle_call(Request, _From, State) ->
     io:format("Call=~p~n", [Request]),
     {reply, ok, State}.
 
 % Handle info:
 
-% @pre -
-% @post -
+%% @doc
 handle_info({notify, [ID, Round, Pairs, Reduce, Options, Callback]}, State) ->
     case State of #{running := Running, finished := Finished} ->
         case orddict:find(ID, Running) of
@@ -186,19 +172,18 @@ handle_info({notify, [ID, Round, Pairs, Reduce, Options, Callback]}, State) ->
                         {noreply, State};
                     _ ->
                         Data = [Round, Pairs, Reduce, Options],
-                        Pid = lynkia_mapreduce_observer:start(Data, gen_propagator(ID, Callback)),
-                        {noreply, State#{
-                            running => orddict:store(ID, #{
-                                pid => Pid,
-                                callback => Callback
-                            }, Running)
-                        }}
+                        Pid = erlang:spawn(fun() ->
+                            lynkia_mapreduce_observer:start(Data, gen_propagator(ID, Callback))
+                        end),
+                        {noreply, add_to_running(State, ID, #{
+                            pid => Pid,
+                            callback => Callback
+                        })}
                 end
         end
     end;
 
-% @pre - Result = {ok, Pairs} or {error, Reason}
-% @post -
+%% @doc
 handle_info({return, [ID, Result]}, State) ->
     case State of #{running := Running, finished := Finished} ->
         case orddict:find(ID, Running) of
@@ -212,13 +197,12 @@ handle_info({return, [ID, Result]}, State) ->
                         result => Result
                     }, Finished)
                 }};
-            _ -> 
+            _ ->
                 {noreply, State}
         end
     end;
 
-% @pre -
-% @post -
+%% @doc
 handle_info({heartbeat, [ID]}, State) ->
     case State of #{running := Running} ->
         case orddict:find(ID, Running) of
@@ -229,14 +213,14 @@ handle_info({heartbeat, [ID]}, State) ->
         {noreply, State}
     end;
 
+%% @doc
 handle_info(Message, State) ->
     io:format("Info=~p~n", [Message]),
     {noreply, State}.
 
 % API:
 
-% @pre -
-% @post -
+%% @doc
 schedule(Adapters, Reduce, Callback) ->
     Options = #options{
         max_round = 10,
@@ -245,21 +229,18 @@ schedule(Adapters, Reduce, Callback) ->
     },
     schedule(Adapters, Reduce, Options, Callback).
 
-% @pre -
-% @post -
+%% @doc
 schedule(Adapters, Reduce, Options, Callback) ->
     gen_server:cast(?MODULE, {schedule,
         [Adapters, Reduce, Options, Callback]
     }).
 
-% @pre -
-% @post -
+%% @doc
 gc() ->
     io:format("Starting the garbage collection~n"),
     gen_server:cast(?MODULE, gc).
 
-% @pre -
-% @post -
+%% @doc
 debug() ->
     gen_server:cast(?MODULE, debug).
 
@@ -269,8 +250,6 @@ debug() ->
 
 -ifdef(TEST).
 
-% @pre -
-% @post -
 map_reduce_1_test() ->
 
     lynkia_sup:start_link(),
@@ -315,8 +294,6 @@ map_reduce_1_test() ->
     end,
     ok.
 
-% @pre -
-% @post -
 map_reduce_2_test() ->
 
     lasp_sup:start_link(),

@@ -17,6 +17,11 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%%% @doc 
+%%% Broadcast
+%%% @end
+%%%-----------------------------------------------------------------------------
 
 -module(lynkia_broadcast).
 
@@ -50,7 +55,8 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Broadcast.
+%% @doc Broadcast
+-spec broadcast(ServerRef :: atom, Message :: atom) -> ok.
 broadcast(ServerRef, Message) ->
     gen_server:cast(?MODULE, {broadcast, ServerRef, Message}).
 
@@ -87,8 +93,6 @@ handle_call(Msg, _From, State) ->
 
 %% @private
 handle_cast({broadcast, ServerRef, Message}, #state{next_id=NextId, membership=Membership}=State) ->
-
-    io:format("Broadcast message = ~p~n", [Message]),
 
     %% Generate message id.
     MyNode = partisan_peer_service_manager:mynode(),
@@ -168,9 +172,9 @@ membership(Membership) ->
 %% @private
 select_random_sublist(Membership, K) ->
     Result = lists:sublist(shuffle(Membership), K),
-    io:format("random draw at node ~p was ~p~n", [node(), Result]),
+    % io:format("random draw at node ~p was ~p~n", [node(), Result]),
     Result.
 
-%% @reference http://stackoverflow.com/questions/8817171/shuffling-elements-in-a-list-randomly-re-arrange-list-elements/8820501#8820501
+%% reference http://stackoverflow.com/questions/8817171/shuffling-elements-in-a-list-randomly-re-arrange-list-elements/8820501#8820501
 shuffle(L) ->
     [X || {_, X} <- lists:sort([{rand:uniform(), N} || N <- L])].

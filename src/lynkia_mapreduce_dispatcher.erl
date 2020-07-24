@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_mapreduce_dispatcher).
 -include("lynkia.hrl").
 
@@ -10,8 +15,7 @@
     start/3
 ]).
 
-% @pre -
-% @post -
+%% @doc
 start(Pairs, Reduce) ->
     start(Pairs, Reduce, #options{
         max_round = 20,
@@ -19,8 +23,7 @@ start(Pairs, Reduce) ->
         timeout = 5000
     }).
 
-% @pre -
-% @post -
+%% @doc
 start(Pairs, Reduce, Options) ->
     N = dispatch(Pairs, Reduce, Options),
     receive_all(#{
@@ -28,27 +31,22 @@ start(Pairs, Reduce, Options) ->
         accumulator => []
     }, Reduce, Options).
 
-% @pre -
-% @post -
+%% @doc
 receive_all(State, Reduce, Options) ->
     receive
         {add, Pairs} ->
-            logger:info("[MAPREDUCE]: message=~p;pairs=~p~n", ["add", Pairs]),
             case State of
                 #{jobs := N, accumulator := Acc} when N =< 1 ->
                     Result = add_pairs(Acc, Pairs),
-                    logger:info("[MAPREDUCE]: message=~p;result=~p~n", ["add_last_batch", Result]),
                     {ok, Result};
                 #{jobs := N, accumulator := Acc} ->
                     Result = add_pairs(Acc, Pairs),
-                    logger:info("[MAPREDUCE]: message=~p;result=~p~n", ["add_batch", Result]),
                     receive_all(State#{
                         jobs := N - 1,
                         accumulator := Result
                     }, Reduce, Options)
             end;
         {split, Batch} when erlang:length(Batch) > 1 ->
-            logger:info("[MAPREDUCE]: message=~p;batch=~p~n", ["split", Batch]),
             case State of
                 #{jobs := N} ->
                     M = split_batch(Batch, Reduce),
@@ -59,7 +57,6 @@ receive_all(State, Reduce, Options) ->
         {split, _Batch} ->
             {error, "Could not divide a batch of length 1"};
         {error, Reason} ->
-            logger:info("[MAPREDUCE]: message=~p;reason=~p~n", ["error", Reason]),
             {error, Reason}
     after 5000 ->
         case State of #{jobs := N} ->
@@ -68,8 +65,7 @@ receive_all(State, Reduce, Options) ->
         {error, no_activity}
     end.
 
-% @pre -
-% @post -
+%% @doc
 add_pairs(Acc, Pairs) when erlang:is_list(Pairs) ->
     Acc ++ lists:filter(fun(Pair) ->
         case Pair of
@@ -80,8 +76,7 @@ add_pairs(Acc, Pairs) when erlang:is_list(Pairs) ->
 add_pairs(Acc, Pairs) ->
     add_pairs(Acc, [Pairs]).
 
-% @pre -
-% @post -
+%% @doc
 first_pass(Pairs, Reduce, Options) ->
     Limit = Options#options.max_batch_size - 1,
     lists:foldl(fun(Pair, {N, Orddict}) ->
@@ -96,8 +91,7 @@ first_pass(Pairs, Reduce, Options) ->
         end
     end, {0, orddict:new()}, Pairs).
 
-% @pre -
-% @post -
+%% @doc
 form_batch(L1, L2, Batch, Options) ->
     case L1 of
         [] -> {Batch, L2};
@@ -116,8 +110,7 @@ form_batch(L1, L2, Batch, Options) ->
             end
     end.
 
-% @pre -
-% @post -
+%% @doc
 form_batches(L1, N, Reduce, Options) ->
     case form_batch(L1, [], [], Options) of
         {Batch, L2} ->
@@ -128,17 +121,14 @@ form_batches(L1, N, Reduce, Options) ->
             _ -> M end
     end.
 
-% @pre -
-% @post -
+%% @doc
 second_pass(Groups, Reduce, Options) ->
-    logger:info("[MAPREDUCE]: message=~p", ["second_pass"]),
     L = lists:sort(fun({_, P1}, {_, P2}) ->
         erlang:length(P1) > erlang:length(P2)
     end, Groups),
     form_batches(L, 0, Reduce, Options).
 
-% @pre -
-% @post -
+%% @doc
 group_pairs_per_key(Pairs) ->
     Groups = lists:foldl(fun(Pair, Orddict) ->
         case Pair of {Key, Value} ->
@@ -147,8 +137,7 @@ group_pairs_per_key(Pairs) ->
     end, orddict:new(), Pairs),
     orddict:to_list(Groups).
 
-% @pre -
-% @post -
+%% @doc
 reduce(Reduce) ->
     fun(Batch) ->
         Groups = group_pairs_per_key(Batch),
@@ -157,36 +146,33 @@ reduce(Reduce) ->
         end, Groups)
     end.
 
-% @pre -
-% @post -
+%% @doc
 start_reduction(Batch, Reduce) ->
     Self = self(),
-    lynkia_spawn:schedule(reduce(Reduce), [Batch], fun(Result) ->
+    lynkia:spawn(reduce(Reduce), [Batch], fun(Result) ->
         case Result of
             {ok, Pairs} ->
                 % logger:info("[MAPREDUCE]: message=~p;pairs=~p~n", ["SR ok", Pairs]),
                 Self ! {add, Pairs};
             {error, Reason} ->
-                logger:info("[MAPREDUCE]: message=~p;error=~p~n", ["SR error", Reason]),
+                % logger:info("[MAPREDUCE]: message=~p;error=~p~n", ["SR error", Reason]),
                 Self ! {error, Reason};
             timeout ->
-                logger:info("[MAPREDUCE]: message=~p~n", ["SR timeout"]),
+                % logger:info("[MAPREDUCE]: message=~p~n", ["SR timeout"]),
                 Self ! {split, Batch};
             killed ->
-                logger:info("[MAPREDUCE]: message=~p~n", ["SR killed"]),
+                % logger:info("[MAPREDUCE]: message=~p~n", ["SR killed"]),
                 Self ! {split, Batch}
         end
     end).
 
-% @pre -
-% @post -
+%% @doc
 dispatch(Pairs, Reduce, Options) ->
     {N, Groups} = first_pass(Pairs, Reduce, Options),
     M = second_pass(Groups, Reduce, Options),
     N + M.
 
-% @pre -
-% @post -
+%% @doc
 split_batch(Pairs, Reduce) ->
     N = erlang:length(Pairs),
     Options = #options{
@@ -202,8 +188,6 @@ split_batch(Pairs, Reduce) ->
 
 % First pass: Forming full batch
 
-% @pre -
-% @post -
 first_pass_1_test() ->
     F = fun()-> ok end,
     Options = #options{
@@ -217,8 +201,6 @@ first_pass_1_test() ->
     ])),
     ok.
 
-% @pre -
-% @post -
 first_pass_2_test() ->
     F = fun()-> ok end,
     Options = #options{
@@ -237,8 +219,6 @@ first_pass_2_test() ->
 
 % Second pass: Merging remaining pairs
 
-% @pre -
-% @post -
 second_pass_1_test() ->
     F = fun()-> ok end,
     Options = #options{
@@ -251,8 +231,6 @@ second_pass_1_test() ->
     ?assertEqual(second_pass(Groups, F, Options), 1),
     ok.
 
-% @pre -
-% @post -
 second_pass_2_test() ->
     F = fun() -> ok end,
     Options = #options{
@@ -266,8 +244,6 @@ second_pass_2_test() ->
     ?assertEqual(second_pass(Groups, F, Options), 2),
     ok.
 
-% @pre -
-% @post -
 second_pass_3_test() ->
     F = fun() -> ok end,
     Options = #options{
@@ -281,8 +257,6 @@ second_pass_3_test() ->
     ?assertEqual(second_pass(Groups, F, Options), 2),
     ok.
 
-% @pre -
-% @post -
 dispatch_test() ->
     F = fun() -> ok end,
     Options = #options{
@@ -295,24 +269,18 @@ dispatch_test() ->
     ?assertEqual(dispatch(Pairs, F, Options), 5),
     ok.
 
-% @pre -
-% @post -
 split_batch_1_test() ->
     F = fun() -> ok end,
     Pairs = [{key1, value1}, {key1, value3}, {key1, value4}, {key1, value5}, {key1, value6}],
     ?assertEqual(split_batch(Pairs, F), 2),
     ok.
 
-% @pre -
-% @post -
 split_batch_2_test() ->
     F = fun() -> ok end,
     Pairs = [{key4, value1}, {key2, value3}, {key2, value4}, {key2, value6}, {key4, value5}],
     ?assertEqual(split_batch(Pairs, F), 2),
     ok.
 
-% @pre -
-% @post -
 add_pairs_test() ->
     ?assertEqual(add_pairs([], 2), []),
     ?assertEqual(add_pairs([], {2, 4}), [{2, 4}]),

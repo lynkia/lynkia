@@ -34,3 +34,9 @@ You can either:
 Step 3: Verify that your two nodes are connected
 
 `lynkia:members().`
+
+## Generate the documentation
+
+```
+rebar3 edoc
+```

@@ -1,10 +1,15 @@
+%%%-----------------------------------------------------------------------------
+%%% @doc 
+%%%
+%%% @author Julien Banken and Nicolas Xanthos
+%%% @end
+%%%-----------------------------------------------------------------------------
 -module(lynkia_mapreduce_adapter_lasp).
 -export([
     get_pairs/3
 ]).
 
-% @pre -
-% @post -
+%% @doc
 get_pairs(Entries, _Options, Callback) ->
     Pairs = lists:flatmap(fun({IVar, Map}) ->
         Values = lynkia_utils:query(IVar),

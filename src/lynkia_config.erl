@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_config).
 -export([
     get/1,
@@ -5,17 +10,14 @@
     set/2
 ]).
 
-% @pre -
-% @post -
+%% @doc
 get(Key) ->
     application:get_env(lynkia, Key).
 
-% @pre -
-% @post -
+%% @doc
 get(Key, Default) ->
     application:get_env(lynkia, Key, Default).
 
-% @pre -
-% @post -
+%% @doc
 set(Key, Value) ->
     application:set_env(lynkia, Key, Value).

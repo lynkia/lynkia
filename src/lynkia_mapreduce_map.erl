@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_mapreduce_map).
 -include("lynkia.hrl").
 
@@ -9,8 +14,7 @@
     start/2
 ]).
 
-% @pre -
-% @post -
+%% @doc
 receive_all(State, Options) ->
     receive
         {add, Pairs} ->
@@ -27,8 +31,7 @@ receive_all(State, Options) ->
             end
     end.
 
-% @pre -
-% @post -
+%% @doc
 start(Adapters, Options) ->
     N = map(Adapters, Options),
     receive_all(#{
@@ -36,8 +39,7 @@ start(Adapters, Options) ->
         accumulator => []
     }, Options).
 
-% @pre -
-% @post -
+%% @doc
 map(Adapters, Options) ->
     Self = self(),
     lists:foldl(fun(Adapter, N) ->
@@ -51,8 +53,7 @@ map(Adapters, Options) ->
         end
     end, 0, Adapters).
 
-% @pre -
-% @post -
+%% @doc
 add_pairs(Acc, Pairs) when erlang:is_list(Pairs) ->
     Acc ++ lists:filter(fun(Pair) ->
         case Pair of
@@ -69,8 +70,7 @@ add_pairs(Acc, Pairs) ->
 
 -ifdef(TEST).
 
-% @pre -
-% @post -
+%% @doc
 map_lasp_adapter_test() ->
 
     lasp_sup:start_link(),
@@ -102,8 +102,7 @@ map_lasp_adapter_test() ->
     ),
     ok.
 
-% @pre -
-% @post -
+%% @doc
 map_cvs_adapter_test() ->
 
     Options = #options{
@@ -135,8 +134,7 @@ map_cvs_adapter_test() ->
     ),
     ok.
 
-% @pre -
-% @post -
+%% @doc
 map_multiple_adapters_test() ->
 
     Options = #options{

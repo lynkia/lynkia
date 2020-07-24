@@ -1,5 +1,10 @@
+%%%-----------------------------------------------------------------------------
+%%% @doc 
+%%%
+%%% @author Julien Banken and Nicolas Xanthos
+%%% @end
+%%%-----------------------------------------------------------------------------
 -module(file_reader).
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -10,8 +15,7 @@
     load_csv/2
 ]).
 
-% @pre -
-% @post -
+%% @doc
 readfile(Path) ->
     {ok, IOData} = file:read_file(Path),
     Binaries = binary:split(IOData, [<<"\n">>], [global]),
@@ -20,8 +24,7 @@ readfile(Path) ->
         case Line of [] -> Lines; _ -> [Line|Lines] end 
     end, [], Binaries).
 
-% @pre -
-% @post -
+%% @doc
 gen_tuple(Labels, Columns, Parser) ->
     L = lists:zip(Labels, Columns),
     lists:foldl(fun({Label, Column}, Tuple) ->
@@ -30,8 +33,7 @@ gen_tuple(Labels, Columns, Parser) ->
         maps:put(Key, Value, Tuple)
     end, #{}, L).
 
-% @pre -
-% @post -
+%% @doc
 read_csv(Path, Separator, Parser) ->
     Lines = readfile(Path),
     case Lines of
@@ -44,15 +46,13 @@ read_csv(Path, Separator, Parser) ->
             end, Body)
     end.
 
-% @pre -
-% @post -
+%% @doc
 give_ids(Tuples) ->
     lists:foldl(fun(Tuple, {I, List}) ->
         {I + 1, [{I, Tuple}|List]}
     end, {0, []}, Tuples).
 
-% @pre -
-% @post -
+%% @doc
 load_csv(Path, GSet) ->
     Separator = ";",
     Parser = fun(Label, Column) ->
@@ -61,7 +61,6 @@ load_csv(Path, GSet) ->
         _ -> Column end
     end,
     {N, Tuples} = give_ids(read_csv(Path, Separator, Parser)),
-    % io:format("Tuples=~p~n", [Tuples]),
     lasp:bind(GSet, {state_gset, Tuples}),
     lasp:read(GSet, {cardinality, N}).
 
@@ -71,8 +70,7 @@ load_csv(Path, GSet) ->
 
 -ifdef(TEST).
 
-% @pre -
-% @post -
+%% @doc
 read_csv_test() ->
     Path = "dataset/test.csv",
     Separator = ";",

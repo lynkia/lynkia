@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
 %% @doc lynkia top level supervisor.
+%% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
-
 -module(lynkia_sup).
 -behaviour(supervisor).
 -export([
@@ -12,13 +12,11 @@
 
 -define(SERVER, ?MODULE).
 
-% @pre -
-% @post -
+%% @doc
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-% @pre -
-% @post -
+%% @doc
 init([]) ->
     SupFlags = #{
         strategy => one_for_all,
@@ -44,11 +42,5 @@ init([]) ->
             restart => transient,
             type => worker
         }
-        % #{
-        %     id => lynkia_autojoin_sup,
-        %     start => {lynkia_autojoin_sup, start_link, []},
-        %     restart => transient,
-        %     type => supervisor
-        % }
     ],
     {ok, {SupFlags, ChildSpecs}}.

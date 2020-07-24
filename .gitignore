@@ -20,3 +20,5 @@ rebar3.crashdump
 rebar.lock
 *.todo
 _checkout
+doc
+grisp/grisp_base/files/wpa_supplicant.conf

@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
 -module(lynkia_mapreduce_observer).
 -include("lynkia.hrl").
 
@@ -16,16 +21,14 @@
     data :: list()
 }).
 
-% @pre -
-% @post -
-start([_Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
-    erlang:spawn(fun() ->
-        State = init(Data),
-        listen(State, Propagate)
-    end).
+%% @doc
+start([Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
+    Myself = lynkia_utils:myself(),
+    logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", Round]),
+    State = init(Data),
+    listen(State, Propagate).
 
-% @pre -
-% @post -
+%% @doc
 init([_Round, _Pairs, _Reduce, _Options] = Data) -> 
     Self = self(),
     Timer = set_timeout(fun()->
@@ -36,8 +39,7 @@ init([_Round, _Pairs, _Reduce, _Options] = Data) ->
         data = Data
     }.
 
-% @pre -
-% @post -
+%% @doc
 listen(State, Propagate) ->
     receive
         {notify, NewRound, NewPairs} ->
@@ -46,43 +48,39 @@ listen(State, Propagate) ->
                 timer = Timer,
                 data = [Round, _Pairs, Reduce, Options]
             } when NewRound > Round ->
-                io:format("[MAPREDUCE]: message=~p;observer=~p~n", ["notify", lynkia_utils:myself()]),
+                Myself = lynkia_utils:myself(),
+                logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", NewRound]),
                 listen(State#state{
                     timer = restart_timer(Timer),
                     data = [NewRound, NewPairs, Reduce, Options]
                 }, Propagate);
             _ ->
-                io:format("[MAPREDUCE]: message=~p;observer=~p~n", ["notify", lynkia_utils:myself()]),
                 listen(State, Propagate)
             end;
         continue ->
             % When the observer timeout, it becomes a master.
             case State of #state{timer = Timer, data = Data} ->
-                io:format("[MAPREDUCE]: message=~p;master=~p~n", ["continue", lynkia_utils:myself()]),
                 clear_timeout(Timer),
                 lynkia_mapreduce_leader:start(Data, Propagate)
             end;
         heartbeat ->
             % When the observer receives a heartbeat, the observer reset its timer.
             case State of #state{timer = Timer} ->
-                io:format("[MAPREDUCE]: message=~p;observer=~p~n", ["heartbeat", lynkia_utils:myself()]),
                 listen(State#state{
                     timer = restart_timer(Timer)
                 }, Propagate)
             end;
         stop ->
+            io:format("Observer - Stop~n"),
             % When another master returns a result, the observer is killed.
             case State of #state{timer = Timer} ->
-                io:format("[MAPREDUCE]: message=~p;observer=~p~n", ["stop", lynkia_utils:myself()]),
                 clear_timeout(Timer)
             end;
         Message ->
-            io:format("[MAPREDUCE]: message=~p;observer=~p~n", [Message, lynkia_utils:myself()]),
             listen(State, Propagate)
     end.
 
-% @pre -
-% @post -
+%% @doc
 restart_timer(Timer) ->
     clear_timeout(Timer),
     Self = self(),
@@ -91,11 +89,10 @@ restart_timer(Timer) ->
         Self ! continue
     end, [], Delay).
 
-% @pre -
-% @post -
+%% @doc
 get_delay() ->
     Min = 3000,
-    Max = 10000,
+    Max = 8000,
     Min + erlang:trunc(rand:uniform() * ((Max - Min) + 1)).
 
 % @pre  Fun is the function to run when timeout

@@ -1,3 +1,9 @@
+%%%-----------------------------------------------------------------------------
+%%% @doc 
+%%%
+%%% @author Julien Banken and Nicolas Xanthos
+%%% @end
+%%%-----------------------------------------------------------------------------
 -module(lynkia_utils).
 -export([
     join/1,
@@ -9,34 +15,29 @@
     now/0
 ]).
 
-% @pre -
-% @post -
+%% @doc
 myself() ->
     Manager = partisan_peer_service:manager(),
     case Manager:myself() of
         #{name := Name} -> Name
     end.
 
-% @pre -
-% @post -
+%% @doc
 join(Name) ->
     partisan_peer_service:join(Name).
 
-% @pre -
-% @post -
+%% @doc
 members() ->
     partisan_peer_service:members().
 
-% @pre -
-% @post -
+%% @doc
 get_neighbors() ->
     case members() of {ok, Members} ->
         Name = myself(),
         Members -- [Name]
     end.
 
-% @pre -
-% @post -
+%% @doc
 repeat(N, CallBack) ->
     repeat(0, N, CallBack).
 repeat(K, N, CallBack) when N > 0 ->
@@ -44,13 +45,11 @@ repeat(K, N, CallBack) when N > 0 ->
     repeat(K + 1, N - 1, CallBack);
 repeat(_, N, _) when N =< 0 -> ok.
 
-% @pre -
-% @post -
+%% @doc
 query(ID) ->
     {ok, Set} = lasp:query(ID) ,
     sets:to_list(Set).
 
-% @pre -
-% @post -
+%% @doc
 now() ->
     erlang:system_time(millisecond).
