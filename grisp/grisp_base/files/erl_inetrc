@@ -1,0 +1,26 @@
+%--- Erlang Inet Configuration -------------------------------------------------
+
+% Add hosts
+%
+%% Edge wireless laptop node :
+%% Replace <hostname> with the value returned by the "hostname -s" command
+%% and uncomment host entry.
+%% Also replace {X,X,X,X} by the IP starting with "172" when executing
+%% the "hostname -I" command
+
+{host, {X,X,X,X}, ["<hostname>"]}.
+
+%--- GRiSP boards --------------------------------------------------------------
+
+{host, {X,X,X,X}, ["my_grisp_board_1"]}.
+{host, {X,X,X,X}, ["my_grisp_board_2"]}.
+{host, {X,X,X,X}, ["my_grisp_board_3"]}.
+
+% Do not monitor the hosts file
+{hosts_file, ""}.
+
+% Disable caching
+{cache_size, 0}.
+
+% Specify lookup method
+{lookup, [file, native]}.

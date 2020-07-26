@@ -70,7 +70,6 @@ listen(State, Propagate) ->
                     Options
                 ], Propagate);
             _ ->
-                % io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["notify", lynkia_utils:myself()]),
                 listen(State, Propagate)
             end;
         stop ->
@@ -78,10 +77,8 @@ listen(State, Propagate) ->
             case State of #state{deamon = Deamon, worker = Worker} ->
                 kill(Deamon),
                 kill(Worker)
-                % io:format("[MAPREDUCE]: message=~p;leader=~p~n", ["stop", lynkia_utils:myself()])
             end;
         Message ->
-            % io:format("[MAPREDUCE]: message=~p;leader=~p~n", [Message, lynkia_utils:myself()]),
             listen(State, Propagate)
     end.
 

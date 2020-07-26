@@ -39,7 +39,6 @@ init([]) ->
 %% @doc
 handle_cast({on, #lynkia_spawn_add_event{queue = tasks}}, State) ->
     case State of #{number_of_tasks := N, daemon := Pid} ->
-        % io:format("Number of tasks: ~p~n", [N]),
         case N > 100 of
             true -> stop_daemon(Pid);
             false -> ok
@@ -52,7 +51,6 @@ handle_cast({on, #lynkia_spawn_add_event{queue = tasks}}, State) ->
 %% @doc
 handle_cast({on, #lynkia_spawn_remove_event{queue = tasks}}, State) ->
     case State of #{number_of_tasks := N, daemon := Pid} ->
-        % io:format("Number of tasks: ~p~n", [N]),
         case N < 100 of
             true ->
                 {noreply, State#{

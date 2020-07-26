@@ -214,6 +214,11 @@ handle_info({heartbeat, [ID]}, State) ->
     end;
 
 %% @doc
+handle_info(debug, State) ->
+    io:format("State=~p~n", [State]),
+    {noreply, State};
+
+%% @doc
 handle_info(Message, State) ->
     io:format("Info=~p~n", [Message]),
     {noreply, State}.

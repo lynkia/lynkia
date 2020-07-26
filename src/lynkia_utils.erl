@@ -5,6 +5,10 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(lynkia_utils).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -export([
     join/1,
     myself/0,
@@ -12,7 +16,8 @@
     get_neighbors/0,
     repeat/2,
     query/1,
-    now/0
+    now/0,
+    choose/1
 ]).
 
 %% @doc
@@ -53,3 +58,21 @@ query(ID) ->
 %% @doc
 now() ->
     erlang:system_time(millisecond).
+
+%% @doc
+choose([]) -> error;
+choose([_|_] = List) ->
+    Length = erlang:length(List),
+    N = rand:uniform(Length),
+    {ok, lists:nth(N, List)}.
+
+-ifdef(TEST).
+
+choose_test() ->
+    ?assertEqual(choose([]), error),
+    ?assertEqual(choose([42]), {ok, 42}).
+
+-endif.
+
+% To launch the tests:
+% rebar3 eunit --module=lynkia_utils
