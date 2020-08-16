@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc This module exposes the API of Lynkia.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -13,22 +13,18 @@
     mapreduce/4
 ]).
 
-%% @doc Create a task containing Fun, Args and schedule it
--spec spawn(Fun :: function, Args :: []) -> ok.
+%% @doc Schedule a function in the task model. The call is synchronous
 spawn(Fun, Args) ->
     lynkia_spawn:schedule(Fun, Args).
 
-%% @doc Create a task containing Fun, Args and Callback and schedule it
--spec spawn(Fun :: function, Args :: [], Callback :: function) -> ok.
+%% @doc Schedule a function in the task model. The call is asynchronous
 spawn(Fun, Args, Callback) ->
     lynkia_spawn:schedule(Fun, Args, Callback).
 
 %% @doc Start a MapReduce
--spec mapreduce(Adapters :: any, Reduce :: function, Callback :: function) -> ok.
 mapreduce(Adapters, Reduce, Callback) ->
     lynkia_mapreduce:schedule(Adapters, Reduce, Callback).
 
-%% @doc Start a MapReduce
--spec mapreduce(Adapters :: any, Reduce :: function, Option :: any, Callback :: function) -> ok.
+%% @doc Start a MapReduce with options overwriting the default options
 mapreduce(Adapters, Reduce, Options, Callback) ->
     lynkia_mapreduce:schedule(Adapters, Reduce, Options, Callback).

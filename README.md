@@ -12,6 +12,8 @@ git clone https://github.com/lynkia/lynkia.git
 
 ## Getting started
 
+### Shell
+
 Step 1: Start the nodes.
 
 Open two different terminals.
@@ -28,12 +30,12 @@ Step 2: Link the nodes
 
 You can either:
 
-- Enter `lynkia:join('lynkia1@127.0.0.1').` on `lynkia2`
-- Enter `lynkia:join('lynkia2@127.0.0.1').` on `lynkia1`
+- Enter `lynkia_utils:join('lynkia1@127.0.0.1').` on `lynkia2`
+- Enter `lynkia_utils:join('lynkia2@127.0.0.1').` on `lynkia1`
 
 Step 3: Verify that your two nodes are connected
 
-`lynkia:members().`
+`lynkia_utils:members().`
 
 ## Generate the documentation
 

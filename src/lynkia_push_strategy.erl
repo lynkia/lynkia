@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc Implementation of the push strategy for the task model (lynkia_spawn).
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
+
 -module(lynkia_push_strategy).
 -behaviour(gen_server).
 -include("lynkia.hrl").
@@ -31,7 +37,7 @@ init([]) ->
 %% @doc
 handle_cast({on, #lynkia_spawn_add_event{queue = tasks}}, State) ->
     case State of #{number_of_tasks := N} ->
-        case N > ?FORWARDING_THRESHOLD of
+        case N > lynkia_config:get(forwarding_threshold) of
             false -> ok;
             true ->
                 Neighbors = lynkia_utils:get_neighbors(),

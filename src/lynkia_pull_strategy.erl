@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc Implementation of the pull strategy for the task model (lynkia_spawn).
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -39,7 +39,7 @@ init([]) ->
 %% @doc
 handle_cast({on, #lynkia_spawn_add_event{queue = tasks}}, State) ->
     case State of #{number_of_tasks := N, daemon := Pid} ->
-        case N > 100 of
+        case N > lynkia_config:get(pull_stealing_threshold) of
             true -> stop_daemon(Pid);
             false -> ok
         end,
@@ -51,7 +51,7 @@ handle_cast({on, #lynkia_spawn_add_event{queue = tasks}}, State) ->
 %% @doc
 handle_cast({on, #lynkia_spawn_remove_event{queue = tasks}}, State) ->
     case State of #{number_of_tasks := N, daemon := Pid} ->
-        case N < 100 of
+        case N < lynkia_config:get(pull_stealing_threshold) of
             true ->
                 {noreply, State#{
                     daemon := start_daemon(Pid),
@@ -73,13 +73,23 @@ handle_cast({steal, N, Node}, State) ->
 
 %% @doc
 handle_cast(daemon, State) ->
-    case State of #{number_of_tasks := N} when N < 100 ->
-        Myself = lynkia_utils:myself(),
-        Nodes = lynkia_utils:get_neighbors(),
-        lists:foreach(fun(Node) ->
-            send(Node, {steal, 100 - N, Myself})
-        end, Nodes);
-    _ -> ok end,
+    case State of #{number_of_tasks := N} -> 
+        case N < lynkia_config:get(pull_stealing_threshold) of
+            false -> ok;
+            true ->
+                Myself = lynkia_utils:myself(),
+                Nodes = lynkia_utils:get_neighbors(),
+                case erlang:length(Nodes) of
+                    Length when Length > 0 ->
+                        Max = lynkia_config:get(pull_number_of_tasks_to_steal),
+                        M = erlang:trunc((Max - N) / Length),
+                        lists:foreach(fun(Node) ->
+                            send(Node, {steal, M, Myself})
+                        end, Nodes);
+                    _ -> ok
+                end
+        end
+    end,
     {noreply, State};
 
 %% @doc
@@ -111,7 +121,8 @@ send(Node, Message) ->
 
 %% @doc
 loop() ->
-    timer:sleep(1000),
+    Delay = lynkia_config:get(pull_steal_interval),
+    timer:sleep(Delay),
     gen_server:cast(?MODULE, daemon),
     loop().
 

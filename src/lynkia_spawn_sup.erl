@@ -12,32 +12,30 @@
     start_link/0
 ]).
 
-%% @doc
+%% @doc Start the supervisor
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 % Supervisor:
 
-%% @doc
+%% @doc Initialize the supervisor
 init([]) ->
     SupFlags = #{
         strategy => one_for_all,
         intensity => 1,
         period => 5
     },
-    case lynkia_config:get(task_distribution_strategy) of
-        {ok, Module} ->
-            ChildSpecs = [
-                #{
-                    id => lynkia_spawn,
-                    start => {lynkia_spawn, start_link, []},
-                    restart => permanent
-                },
-                #{
-                    id => Module,
-                    start => {Module, start_link, []},
-                    restart => permanent
-                }
-            ],
-            {ok, {SupFlags, ChildSpecs}}
-    end.
+    Module = lynkia_config:get(task_distribution_strategy),
+    ChildSpecs = [
+        #{
+            id => lynkia_spawn,
+            start => {lynkia_spawn, start_link, []},
+            restart => permanent
+        },
+        #{
+            id => Module,
+            start => {Module, start_link, []},
+            restart => permanent
+        }
+    ],
+    {ok, {SupFlags, ChildSpecs}}.

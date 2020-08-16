@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc Event dispatcher of the task model.
+%% @author Julien Banken and Nicolas Xanthos
+%% @end
+%%%-------------------------------------------------------------------
+
 -module(lynkia_spawn_monitor).
 -include("lynkia.hrl").
 
@@ -8,16 +14,12 @@
 
 % API:
 
-%% @doc
+%% @doc Forward the event to the module set in the configuration file (see task_distribution_strategy)
 on(Event) ->
-    case lynkia_config:get(task_distribution_strategy) of
-        {ok, Module} ->
-            Module:on(Event)
-    end.
+    Module = lynkia_config:get(task_distribution_strategy),
+    Module:on(Event).
 
-%% @doc
+%% @doc Ask the module set in the configuration file to print debug messages (see task_distribution_strategy)
 debug() ->
-    case lynkia_config:get(task_distribution_strategy) of
-        {ok, Module} ->
-            Module:debug()
-    end.
+    Module = lynkia_config:get(task_distribution_strategy),
+    Module:debug().

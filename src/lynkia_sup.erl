@@ -12,11 +12,11 @@
 
 -define(SERVER, ?MODULE).
 
-%% @doc
+%% @doc Start the top level supervisor
 start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-%% @doc
+%% @doc Initialize the top level supervisor
 init([]) ->
     SupFlags = #{
         strategy => one_for_all,

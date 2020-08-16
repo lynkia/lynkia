@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc This module contains the logic of the observer.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -21,14 +21,19 @@
     data :: list()
 }).
 
-%% @doc
-start([Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
-    Myself = lynkia_utils:myself(),
-    logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", Round]),
+%% @doc Start an observer
+%% Round - Number of the round
+%% Pairs - Input pairs
+%% Reduce - Reduce function
+%% Options - Options
+%% Propagate - Function to propagate the messages
+start([_Round, _Pairs, _Reduce, _Options] = Data, Propagate) ->
+    % Myself = lynkia_utils:myself(),
+    % logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", Round]),
     State = init(Data),
     listen(State, Propagate).
 
-%% @doc
+%% @doc Initialize the state of the observer
 init([_Round, _Pairs, _Reduce, _Options] = Data) -> 
     Self = self(),
     Timer = set_timeout(fun()->
@@ -39,7 +44,9 @@ init([_Round, _Pairs, _Reduce, _Options] = Data) ->
         data = Data
     }.
 
-%% @doc
+%% @doc Loop function that receives the incoming messages.
+%% The function will process the messages sent by the other nodes.
+%% When the node does not receive any messages from the leader, the node become leader.
 listen(State, Propagate) ->
     receive
         {notify, NewRound, NewPairs} ->
@@ -48,8 +55,8 @@ listen(State, Propagate) ->
                 timer = Timer,
                 data = [Round, _Pairs, Reduce, Options]
             } when NewRound > Round ->
-                Myself = lynkia_utils:myself(),
-                logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", NewRound]),
+                % Myself = lynkia_utils:myself(),
+                % logger:info("[MAPREDUCE]: node=~p;type=~p;round=~p", [Myself, "observer", NewRound]),
                 listen(State#state{
                     timer = restart_timer(Timer),
                     data = [NewRound, NewPairs, Reduce, Options]
@@ -72,15 +79,17 @@ listen(State, Propagate) ->
             end;
         stop ->
             io:format("Observer - Stop~n"),
+            % Myself = lynkia_utils:myself(),
+            % logger:info("[STOP-MAPREDUCE]: node=~p;type=~p;message=~p", [Myself, "observer", "stop"]),
             % When another master returns a result, the observer is killed.
             case State of #state{timer = Timer} ->
                 clear_timeout(Timer)
             end;
-        Message ->
+        _Message ->
             listen(State, Propagate)
     end.
 
-%% @doc
+%% @doc retart the Timer
 restart_timer(Timer) ->
     clear_timeout(Timer),
     Self = self(),
@@ -89,24 +98,20 @@ restart_timer(Timer) ->
         Self ! continue
     end, [], Delay).
 
-%% @doc
+%% @doc Get a random delay
 get_delay() ->
-    Min = 3000,
-    Max = 8000,
+    Min = lynkia_config:get(mapreduce_observer_min_timeout),
+    Max = lynkia_config:get(mapreduce_observer_max_timeout),
     Min + erlang:trunc(rand:uniform() * ((Max - Min) + 1)).
 
-% @pre  Fun is the function to run when timeout
-%       Args are the arguments of the function Fun
-%       Delay is the time in ms before the timeout
-% @post Spawn a new process with a timer, after the Delay (timeout), Fun is run
+%% @doc Spawn a new process with a timer, after the Delay (timeout), Fun is run
 set_timeout(Fun, Args, Delay) ->
     erlang:spawn(fun() ->
         timer:sleep(Delay),
         erlang:apply(Fun, Args)
     end).
 
-% @pre Timer is a process
-% @post The process Timer is kill
+%% @doc kill the Timer process
 clear_timeout(Timer) ->
     case erlang:is_process_alive(Timer) of
         true ->

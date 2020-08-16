@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc This module contains functions to read different type of file.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -15,14 +15,17 @@
     load_csv/2
 ]).
 
-%% @doc
+%% @doc Read a file
 readfile(Path) ->
-    {ok, IOData} = file:read_file(Path),
-    Binaries = binary:split(IOData, [<<"\n">>], [global]),
-    lists:foldr(fun(Binary, Lines) ->
-        Line = erlang:binary_to_list(Binary),
-        case Line of [] -> Lines; _ -> [Line|Lines] end 
-    end, [], Binaries).
+    case file:read_file(Path) of
+        {ok, IOData} ->
+            Binaries = binary:split(IOData, [<<"\n">>], [global]),
+            lists:foldr(fun(Binary, Lines) ->
+                Line = erlang:binary_to_list(Binary),
+                case Line of [] -> Lines; _ -> [Line|Lines] end 
+            end, [], Binaries);
+        {error, _Reason} -> erlang:exit("Unvalid file path")
+    end.
 
 %% @doc
 gen_tuple(Labels, Columns, Parser) ->
@@ -33,7 +36,7 @@ gen_tuple(Labels, Columns, Parser) ->
         maps:put(Key, Value, Tuple)
     end, #{}, L).
 
-%% @doc
+%% @doc read a CSV file
 read_csv(Path, Separator, Parser) ->
     Lines = readfile(Path),
     case Lines of
@@ -52,7 +55,7 @@ give_ids(Tuples) ->
         {I + 1, [{I, Tuple}|List]}
     end, {0, []}, Tuples).
 
-%% @doc
+%% @doc Load CSV file
 load_csv(Path, GSet) ->
     Separator = ";",
     Parser = fun(Label, Column) ->
@@ -70,7 +73,6 @@ load_csv(Path, GSet) ->
 
 -ifdef(TEST).
 
-%% @doc
 read_csv_test() ->
     Path = "dataset/test.csv",
     Separator = ";",

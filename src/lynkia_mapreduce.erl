@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc MapReduce manager.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -28,24 +28,31 @@
     debug/0
 ]).
 
-%% @doc
+%% @doc Generate an unique tuple composed of the name of the node and an unique id
+%% {node_name, id}
 generate_unique_id() ->
     case lasp_unique:unique() of {ok, ID} ->
         {lynkia_utils:myself(), ID}
     end.
 
-%% @doc
+%% @doc Broadcast Message to other nodes of the network
 broadcast(Message) ->
     lynkia_broadcast:broadcast(lynkia_mapreduce, Message).
 
-%% @doc
+%% @doc Send messages to Leader or Observer. Transform the messages from one API to another. 
 gen_propagator(ID, Callback) ->
     fun(Message) ->
         case Message of
             {notify, [Round, Pairs, Reduce, Options]} ->
-                broadcast({notify, [
-                    ID, Round, Pairs, Reduce, Options, Callback
-                ]});
+                Interval = lynkia_config:get(mapreduce_broadcast_interval),
+                case Round rem Interval of
+                    0 ->
+                        broadcast({notify, [
+                            ID, Round, Pairs, Reduce, Options, Callback
+                        ]});
+                    _ ->
+                        ok
+                end;
             {return, [Result]} ->
                 Pid = erlang:whereis(lynkia_mapreduce),
                 Pid ! {return, [ID, Result]},
@@ -56,11 +63,11 @@ gen_propagator(ID, Callback) ->
         end
     end.
 
-%% @doc
+%% @doc Start the gen_server
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% @doc
+%% @doc Init the gen_server
 init([]) ->
     {ok, #{
         timer => erlang:spawn(fun() -> ok end),
@@ -68,7 +75,7 @@ init([]) ->
         finished => orddict:new()
     }}.
 
-%% @doc
+%% @doc Schedule the garbage collector
 schedule_gc(State) ->
     case maps:find(timer, State) of
         {ok, Timer} ->
@@ -77,7 +84,8 @@ schedule_gc(State) ->
                 false ->
                     State#{
                         timer => erlang:spawn(fun() ->
-                            timer:sleep(4000),
+                            Delay = lynkia_config:get(mapreduce_gc_interval),
+                            timer:sleep(Delay),
                             gc()
                         end)
                     }
@@ -85,13 +93,15 @@ schedule_gc(State) ->
         error -> 
             State#{
                 timer => erlang:spawn(fun() ->
-                    timer:sleep(4000),
+                    Delay = lynkia_config:get(mapreduce_gc_interval),
+                    timer:sleep(Delay),
                     gc()
                 end)
             }
     end.
 
-%% @doc
+%% @doc Add an Entry = {Pid, Callback} to the state in running
+%% Pid is the process id of a Leader or an Observer
 add_to_running(State, ID, Entry) ->
     S1 = schedule_gc(State),
     case S1 of #{running := Running} ->
@@ -102,9 +112,7 @@ add_to_running(State, ID, Entry) ->
 
 % Handle cast:
 
-%% @doc  
-% Args is a list of arguments
-% Start a new MapReduce and the current node is the master
+%% @doc Handle the message schedule. Start a new MapReduce and the current node is the leader
 handle_cast({schedule, [Adapters, Reduce, Options, Callback]}, State) ->
     ID = generate_unique_id(),
     case lynkia_mapreduce_map:start(Adapters, Options) of
@@ -119,11 +127,12 @@ handle_cast({schedule, [Adapters, Reduce, Options, Callback]}, State) ->
             })}
     end;
 
-%% @doc
+%% @doc Handle the message gc. Start the garbage collector
 handle_cast(gc, State) ->
     case State of #{running := Running, finished := Finished} ->
-        FilteredFinished = orddict:filter(fun(Key, Value) ->
-            lynkia_utils:now() - maps:get(timestamp, Value) < 5000
+        TTL = lynkia_config:get(mapreduce_ttl),
+        FilteredFinished = orddict:filter(fun(_Key, Value) ->
+            lynkia_utils:now() - maps:get(timestamp, Value) < TTL
         end, Finished),
         case orddict:is_empty(Running) and orddict:is_empty(FilteredFinished) of
             true ->
@@ -158,7 +167,7 @@ handle_call(Request, _From, State) ->
 
 % Handle info:
 
-%% @doc
+%% @doc Handle the notify message
 handle_info({notify, [ID, Round, Pairs, Reduce, Options, Callback]}, State) ->
     case State of #{running := Running, finished := Finished} ->
         case orddict:find(ID, Running) of
@@ -183,7 +192,7 @@ handle_info({notify, [ID, Round, Pairs, Reduce, Options, Callback]}, State) ->
         end
     end;
 
-%% @doc
+%% @doc Return the result of the MapReduce
 handle_info({return, [ID, Result]}, State) ->
     case State of #{running := Running, finished := Finished} ->
         case orddict:find(ID, Running) of
@@ -202,7 +211,7 @@ handle_info({return, [ID, Result]}, State) ->
         end
     end;
 
-%% @doc
+%% @doc Handle the heartbeat message
 handle_info({heartbeat, [ID]}, State) ->
     case State of #{running := Running} ->
         case orddict:find(ID, Running) of
@@ -225,27 +234,27 @@ handle_info(Message, State) ->
 
 % API:
 
-%% @doc
+%% @doc Schedule a new MapReduce
 schedule(Adapters, Reduce, Callback) ->
     Options = #options{
-        max_round = 10,
-        max_batch_size = 2,
-        timeout = 3000
+        max_round = lynkia_config:get(mapreduce_max_round),
+        max_batch_size = lynkia_config:get(mapreduce_max_batch_size),
+        timeout = lynkia_config:get(mapreduce_round_timeout)
     },
     schedule(Adapters, Reduce, Options, Callback).
 
-%% @doc
+%% @doc Schedule a new MapReduce
 schedule(Adapters, Reduce, Options, Callback) ->
     gen_server:cast(?MODULE, {schedule,
         [Adapters, Reduce, Options, Callback]
     }).
 
-%% @doc
+%% @doc Start the garbage collector
 gc() ->
-    io:format("Starting the garbage collection~n"),
+    % io:format("Starting the garbage collection~n"),
     gen_server:cast(?MODULE, gc).
 
-%% @doc
+%% @doc Print the state of the gen_server
 debug() ->
     gen_server:cast(?MODULE, debug).
 

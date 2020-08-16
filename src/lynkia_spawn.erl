@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc The module contains the logic of the Task model.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -47,13 +47,12 @@
     body :: any()
 }).
 
-%% @doc
+%% @doc Start the gen_server
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% @doc
+%% @doc Initialize the state of the process.
 init([]) ->
-    erlang:send_after(?LOG_INTERVAL, ?MODULE, write_log),
     {ok, #{
         tasks => orddict:new(),
         queue => queue:new(),
@@ -61,7 +60,7 @@ init([]) ->
         forwarded_tasks => orddict:new()
     }}.
 
-%% @doc
+%% @doc Send the given message to the given node.
 send(Node, Message) ->
     partisan_peer_service:cast_message(Node, ?MODULE, #message{
         header = #header{
@@ -70,12 +69,12 @@ send(Node, Message) ->
         body = Message
     }).
 
-%% @doc
+%% @doc Retrieve the task structure from a given id.
 get_task(ID, State) ->
     Tasks = maps:get(tasks, State),
     orddict:find(ID, Tasks).
 
-%% @doc
+%% @doc Add the task to "tasks" and emit an event
 add_task(Task, State) ->
     ID = Task#task.id,
     maps:update_with(tasks, fun(Tasks) ->
@@ -87,19 +86,20 @@ add_task(Task, State) ->
         orddict:store(ID, Task, Tasks)
     end, State).
 
-%% @doc
+%% @doc Add the task to "queue" and emit an event
 add_to_queue(Task, State) ->
     ID = Task#task.id,
     maps:update_with(queue, fun(Q) ->
         queue:in(ID, Q)
     end, State).
 
-%% @doc
+%% @doc Execute the given function with the given arguments
+%% The result of the function will be returned to the parent process (see Parent)
 worker(Parent, Fun, Args) ->
     Opts = [
         link,
         {max_heap_size, #{
-            size => 0,
+            size => lynkia_config:get(task_max_memory_usage),
             kill => true,
             error_logger => false
         }}
@@ -118,7 +118,7 @@ worker(Parent, Fun, Args) ->
         end
     end, Opts).
 
-%% @doc
+%% @doc Spawn a new process that will process the given task
 execute_function(Task) ->
     case Task of #task{
         id = ID,
@@ -139,7 +139,7 @@ execute_function(Task) ->
                 {'EXIT', _Parent, _Reason} ->
                     Term = {return, ID, Myself, killed},
                     gen_server:cast(?MODULE, Term)
-            after ?TIMEOUT ->
+            after lynkia_config:get(task_max_computation_time) ->
                 erlang:exit(Pid, shutdown),
                 Term = {return, ID, Myself, timeout},
                 gen_server:cast(?MODULE, Term)
@@ -147,7 +147,8 @@ execute_function(Task) ->
         end)
     end.
 
-%% @doc
+%% @doc Add the task to "running" and emit an event
+%% The task will be processed by the node.
 add_to_running(Task, State) ->
     maps:update_with(running_tasks, fun(RunningTasks) ->
         ID = Task#task.id,
@@ -160,7 +161,8 @@ add_to_running(Task, State) ->
         orddict:store(ID, Pid, RunningTasks)
     end, State).
 
-%% @doc
+%% @doc Add the task to "forwarded" and emit an event
+%% The task will forwarded to the given node.
 add_to_forwarded(Node, Task, State) ->
     ID = Task#task.id,
     maps:update_with(forwarded_tasks, fun(ForwardedTasks) ->
@@ -176,7 +178,7 @@ add_to_forwarded(Node, Task, State) ->
         orddict:store(ID, Node, ForwardedTasks)
     end, State).
 
-%% @doc
+%% @doc Process as many tasks as possible (see the "limit")
 run_task(N, Q, State) when N > 0 ->
     case queue:out(Q) of
         {empty, _} ->
@@ -196,22 +198,23 @@ run_task(N, Q, State) when N > 0 ->
     end;
 run_task(_N, _Q, State) -> State.
 
-%% @doc
+%% @doc Process as many tasks as possible (see the "task_workers")
 run_tasks(State) ->
     case State of
         #{queue := Q, running_tasks := RunningTasks} ->
-            N = ?MAX_RUNNING - orddict:size(RunningTasks),
+            NumberOfWorkers = lynkia_config:get(task_workers),
+            N = NumberOfWorkers - orddict:size(RunningTasks),
             run_task(N, Q, State)
     end.
 
-%% @doc
+%% @doc Return true if the given task has been forwarded
 is_forwarded(Task, State) ->
     case State of #{forwarded_tasks := ForwardedTasks} ->
         ID = Task#task.id,
         orddict:is_key(ID, ForwardedTasks)
     end.
 
-%% @doc
+%% @doc Forward the given number of tasks.
 forward_task(N, Node, Q, State) when N > 0 ->
     case queue:out_r(Q) of
         {empty, _} -> State;
@@ -234,19 +237,20 @@ forward_task(N, Node, Q, State) when N > 0 ->
     end;
 forward_task(_N, _Node, _Q, State) -> State.
 
-%% @doc
+%% @doc Forward the given number of tasks.
 forward_tasks(N, Node, State) ->
     case State of #{queue := Q} ->
-        case queue:len(Q) > ?FORWARDING_THRESHOLD of
+        Threshold = lynkia_config:get(forwarding_threshold),
+        case queue:len(Q) > Threshold of
             true ->
-                {_Q1, Q2} = queue:split(?FORWARDING_THRESHOLD, Q),
+                {_Q1, Q2} = queue:split(Threshold, Q),
                 forward_task(N, Node, Q2, State);
             false ->
                 State
         end
     end.
 
-%% @doc
+%% @doc Remove the task having the given id from "running"
 remove_from_running(ID, From, Reason, State) ->
     case State of #{running_tasks := RunningTasks} ->
         case orddict:find(ID, RunningTasks) of
@@ -267,7 +271,7 @@ remove_from_running(ID, From, Reason, State) ->
         end
     end.
 
-%% @doc
+%% @doc Remove the task having the given id from "forwarded"
 remove_from_forwarded(ID, From, Reason, State) ->
     case State of #{forwarded_tasks := ForwardedTasks} ->
         case orddict:find(ID, ForwardedTasks) of
@@ -291,7 +295,7 @@ remove_from_forwarded(ID, From, Reason, State) ->
         end
     end.
 
-%% @doc
+%% @doc Remove the task having the given id from "queue"
 remove_from_queue(ID, State) ->
     case State of #{queue := Q} ->
         maps:update(
@@ -303,7 +307,7 @@ remove_from_queue(ID, State) ->
         )
     end.
 
-%% @doc
+%% @doc Remove the task having the given id from "task"
 remove_task(ID, From, Reason, State) ->
     case State of #{tasks := Tasks} ->
         case orddict:find(ID, Tasks) of
@@ -326,7 +330,7 @@ remove_task(ID, From, Reason, State) ->
 
 % Handle cast:
 
-%% @doc
+%% @doc Receive a message
 handle_cast(#message{header = Header, body = Body}, State) ->
     case Body of
         {return, ID, Result} ->
@@ -340,7 +344,7 @@ handle_cast(#message{header = Header, body = Body}, State) ->
     end,
     {noreply, State};
 
-%% @doc
+%% @doc Schedule the task "Task" in the task model
 handle_cast({schedule, Task}, State) ->
     case State of #{tasks := Tasks} ->
         ID = Task#task.id,
@@ -351,11 +355,12 @@ handle_cast({schedule, Task}, State) ->
                 S1 = add_task(Task, State),
                 S2 = add_to_queue(Task, S1),
                 S3 = run_tasks(S2),
+                % write_log(S3),
                 {noreply, S3}
         end
     end;
 
-%% @doc
+%% @doc Receive the result "Result" of the task "ID" by "Node"
 handle_cast({return, ID, Node, Result}, State) ->
     case get_task(ID, State) of
         {ok, #task{
@@ -373,21 +378,28 @@ handle_cast({return, ID, Node, Result}, State) ->
             S3 = remove_from_queue(ID, S2),
             S4 = remove_task(ID, Node, return, S3),
             S5 = run_tasks(S4),
+            % write_log(S5),
             {noreply, S5};
         error ->
             {noreply, State}
     end;
 
-%% @doc
+%% @doc Receive a kill message for task "ID"
 handle_cast({kill, ID, Node}, State) ->
-    S1 = remove_from_forwarded(ID, Node, kill, State),
-    S2 = remove_from_running(ID, Node, kill, S1),
-    S3 = remove_from_queue(ID, S2),
-    S4 = remove_task(ID, Node, kill, S3),
-    S5 = run_tasks(S4),
-    {noreply, S5};
+    case get_task(ID, State) of
+        {ok, _} ->
+            S1 = remove_from_forwarded(ID, Node, kill, State),
+            S2 = remove_from_running(ID, Node, kill, S1),
+            S3 = remove_from_queue(ID, S2),
+            S4 = remove_task(ID, Node, kill, S3),
+            S5 = run_tasks(S4),
+            % write_log(S5),
+            {noreply, S5};
+        error ->
+            {noreply, State}
+    end;
 
-%% @doc
+%% @doc Receive a request to forward "N" tasks to "Node"
 handle_cast({forward, N, Node}, State) ->
     Myself = lynkia_utils:myself(),
     case Node == Myself of
@@ -425,23 +437,6 @@ handle_call(_Request, _From, State) ->
 % Info:
 
 %% @doc
-handle_info(write_log, State) ->
-    case State of #{
-        queue := Q,
-        running_tasks := RunningTasks,
-        forwarded_tasks := ForwardedTasks
-    } ->
-        logger:info("[SPAWN-QUEUE]: node=~p;running_tasks=~p;forwarded_tasks=~p;queue=~p~n", [
-            lynkia_utils:myself(), 
-            orddict:size(RunningTasks),
-            orddict:size(ForwardedTasks),
-            queue:len(Q)
-        ])
-    end,
-    erlang:send_after(?LOG_INTERVAL, ?MODULE, write_log),
-    {noreply, State};
-
-%% @doc
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -458,9 +453,7 @@ terminate(_Reason, State) ->
 
 % Helpers:
 
-%% @doc
-% Pid is a process
-% The process Pid is killed
+%% @doc Kill the given process
 kill(Pid) ->
     case Pid of
         undefined -> {noreply};
@@ -483,7 +476,7 @@ schedule(Fun, Args, Callback) ->
     },
     gen_server:cast(?MODULE, {schedule, Task}).
 
-%% @doc
+%% @doc Schedule the given function with the given arguments.
 schedule(Fun, Args) ->
     Self = self(),
     schedule(Fun, Args, fun(Result) ->
@@ -493,10 +486,25 @@ schedule(Fun, Args) ->
         Results
     end.
 
-%% @doc
+%% @doc Forward N tasks from Node.
 forward(N, Node) ->
     gen_server:cast(?MODULE, {forward, N, Node}).
 
-%% @doc
+%% @doc Debug message
 debug() ->
     gen_server:cast(?MODULE, debug).
+
+%% @doc write the state of the task model in the logger
+write_log(State) ->
+    case State of #{
+        queue := Q,
+        running_tasks := RunningTasks,
+        forwarded_tasks := ForwardedTasks
+    } ->
+        logger:info("[SPAWN-QUEUE]: node=~p;running_tasks=~p;forwarded_tasks=~p;queue=~p~n", [
+            lynkia_utils:myself(), 
+            orddict:size(RunningTasks),
+            orddict:size(ForwardedTasks),
+            queue:len(Q)
+        ])
+    end.

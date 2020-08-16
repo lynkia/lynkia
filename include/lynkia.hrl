@@ -1,10 +1,5 @@
--define(DEBUG, true).
-
--define(TIMEOUT, 5000).
--define(MAX_RUNNING, 1).
--define(FORWARDING_THRESHOLD, 50).
 -define(LOG_INTERVAL, 100).
-
+-define(DEBUG, true).
 -define(PRINT(Pattern, Args),
     case ?DEBUG of
         true -> io:format(Pattern, Args);

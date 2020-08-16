@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc Adapter for CRDT variables.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -9,7 +9,7 @@
     get_pairs/3
 ]).
 
-%% @doc
+%% @doc Generate key-value pairs from a CRDT variable
 get_pairs(Entries, _Options, Callback) ->
     Pairs = lists:flatmap(fun({IVar, Map}) ->
         Values = lynkia_utils:query(IVar),

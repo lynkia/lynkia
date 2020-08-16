@@ -18,8 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 %%%-----------------------------------------------------------------------------
-%%% @doc 
-%%% Broadcast
+%%% @doc Broadcast messages via Partisan.
 %%% @end
 %%%-----------------------------------------------------------------------------
 
@@ -31,7 +30,8 @@
 -export([start_link/0,
          stop/0,
          broadcast/2,
-         update/1]).
+         update/1,
+         debug/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -41,9 +41,11 @@
          terminate/2,
          code_change/3]).
 
--define(FANOUT, 2).
-
--record(state, {next_id, membership}).
+-record(state, {
+    next_id :: integer(),
+    membership :: list(),
+    pid :: identifier()
+}).
 
 %%%===================================================================
 %%% API
@@ -55,8 +57,7 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%% @doc Broadcast
--spec broadcast(ServerRef :: atom, Message :: atom) -> ok.
+%% @doc Broadcast a new message to the given server ref
 broadcast(ServerRef, Message) ->
     gen_server:cast(?MODULE, {broadcast, ServerRef, Message}).
 
@@ -84,7 +85,11 @@ init([]) ->
     {ok, Membership} = partisan_peer_service:members(),
     io:format("Starting with membership: ~p~n", [Membership]),
 
-    {ok, #state{next_id=0, membership=membership(Membership)}}.
+    {ok, #state{
+        next_id = 0,
+        membership = membership(Membership),
+        pid = erlang:spawn(fun() -> ok end)
+    }}.
 
 %% @private
 handle_call(Msg, _From, State) ->
@@ -92,30 +97,46 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 %% @private
-handle_cast({broadcast, ServerRef, Message}, #state{next_id=NextId, membership=Membership}=State) ->
-
+handle_cast({broadcast, ServerRef, Message}, #state{next_id = NextId, membership = Membership} = State) ->
+    S1 = schedule_gc(State),
     %% Generate message id.
-    MyNode = partisan_peer_service_manager:mynode(),
-    Id = {MyNode, NextId},
-
-    %% Forward to process.
-    % partisan_util:process_forward(ServerRef, Message),
+    Myself = lynkia_utils:myself(),
+    Key = {Myself, NextId, erlang:phash2(Message)},
+    Value = lynkia_utils:now(),
 
     %% Store outgoing message.
-    true = ets:insert(?MODULE, {Id, Message}),
+    true = ets:insert(?MODULE, {Key, Value}),
 
     %% Forward to random subset of peers.
-    AntiEntropyMembers = select_random_sublist(membership(Membership), ?FANOUT),
-
+    Fanout = lynkia_config:get(fanout),
+    AntiEntropyMembers = select_random_sublist(membership(Membership), Fanout),
     lists:foreach(fun(N) ->
-        partisan_pluggable_peer_service_manager:forward_message(N, undefined, ?MODULE, {broadcast, Id, ServerRef, Message, MyNode}, [])
-    end, AntiEntropyMembers -- [MyNode]),
+        Manager = partisan_pluggable_peer_service_manager,
+        Term = {broadcast, Key, ServerRef, Message, Myself},
+        Manager:forward_message(N, undefined, ?MODULE, Term, [])
+    end, AntiEntropyMembers -- [Myself]),
 
-    {noreply, State#state{next_id=NextId + 1}};
+    {noreply, S1#state{next_id = NextId + 1}};
 
 handle_cast({update, Membership0}, State) ->
     Membership = membership(Membership0),
-    {noreply, State#state{membership=Membership}};
+    {noreply, State#state{membership = Membership}};
+
+handle_cast(gc, State) ->
+    case is_table_empty(?MODULE) of
+        true ->
+            {noreply, State};
+        false ->
+            TTL = lynkia_config:get(broadcast_ets_ttl),
+            Now = lynkia_utils:now() - TTL,
+            ets:select_delete(?MODULE, [{
+                {'$1', '$2'},
+                [{'=<', '$2', Now}],
+                [true]
+            }]),
+            S1 = schedule_gc(State),
+            {noreply, S1}
+    end;
 
 handle_cast(Msg, State) ->
     io:format("Unhandled cast messages at module ~p: ~p~n", [?MODULE, Msg]),
@@ -123,33 +144,36 @@ handle_cast(Msg, State) ->
 
 %% @private
 %% Incoming messages.
-handle_info({broadcast, Id, ServerRef, Message, FromNode}, #state{membership=Membership}=State) ->
-
-    case ets:lookup(?MODULE, Id) of
+handle_info({broadcast, Key, ServerRef, Message, FromNode}, #state{membership = Membership} = State) ->
+    S1 = schedule_gc(State),
+    case ets:lookup(?MODULE, Key) of
         [] ->
-            % io:format("~p received broadcast value from node ~p: ~p~n", [node(), FromNode, Message]),
             %% Forward to process.
             partisan_util:process_forward(ServerRef, Message),
 
             %% Store.
-            true = ets:insert(?MODULE, {Id, Message}),
+            Value = lynkia_utils:now(),
+            true = ets:insert(?MODULE, {Key, Value}),
 
             %% Forward to our peers.
-            MyNode = partisan_peer_service_manager:mynode(),
+            Myself = lynkia_utils:myself(),
 
             %% Forward to random subset of peers: except ourselves and where we got it from.
-            AntiEntropyMembers = select_random_sublist(membership(Membership), ?FANOUT),
+            Fanout = lynkia_config:get(fanout),
+            AntiEntropyMembers = select_random_sublist(membership(Membership), Fanout),
 
             lists:foreach(fun(N) ->
-                partisan_pluggable_peer_service_manager:forward_message(N, undefined, ?MODULE, {broadcast, Id, ServerRef, Message, MyNode}, [])
-            end, AntiEntropyMembers -- [MyNode, FromNode]),
+                Manager = partisan_pluggable_peer_service_manager,
+                Term = {broadcast, Key, ServerRef, Message, Myself},
+                Manager:forward_message(N, undefined, ?MODULE, Term, [])
+            end, AntiEntropyMembers -- [Myself, FromNode]),
 
             ok;
         _ ->
             ok
     end,
+    {noreply, S1};
 
-    {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -178,3 +202,29 @@ select_random_sublist(Membership, K) ->
 %% reference http://stackoverflow.com/questions/8817171/shuffling-elements-in-a-list-randomly-re-arrange-list-elements/8820501#8820501
 shuffle(L) ->
     [X || {_, X} <- lists:sort([{rand:uniform(), N} || N <- L])].
+
+is_table_empty(Table) ->
+    case ets:first(Table) of
+        '$end_of_table' -> true;
+        _ -> false
+    end.
+
+%% @doc
+schedule_gc(State) ->
+    case State of #state{ pid = Timer } ->
+        case erlang:is_process_alive(Timer) of
+            true -> State;
+            false ->
+                State#state{
+                    pid = erlang:spawn(fun() ->
+                        Delay = lynkia_config:get(broadcast_ets_gc_interval),
+                        timer:sleep(Delay),
+                        gen_server:cast(?MODULE, gc)
+                    end)
+                }
+        end
+    end.
+
+%% @doc
+debug() ->
+    ets:i(?MODULE).

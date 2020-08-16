@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc Adapter for raw file.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -9,7 +9,8 @@
     get_pairs/3
 ]).
 
-%% @doc
+%% @doc Generate key-value pairs from raw file
+%% Callback - Function to call all pairs have been produced
 get_pairs(Entries, _Options, Callback) ->
     Pairs = lists:flatmap(fun({Path, Map}) ->
         Lines = file_reader:readfile(Path),

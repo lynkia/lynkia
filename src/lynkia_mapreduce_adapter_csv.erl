@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc Adapter for CSV files.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -9,7 +9,8 @@
     get_pairs/3
 ]).
 
-%% @doc
+%% @doc Generate key-value pairs from a csv file
+%% Callback - Function to call all pairs have been produced
 get_pairs(Entries, _Options, Callback) ->
     Separator = ";",
     Parser = fun(_, Column) -> Column end,

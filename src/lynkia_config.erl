@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc Retrieve the configuration parameters given by the programmer.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -10,14 +10,20 @@
     set/2
 ]).
 
-%% @doc
+%% @doc Retrieve the given environment variable
 get(Key) ->
-    application:get_env(lynkia, Key).
+    case application:get_env(lynkia, Key) of
+        {ok, Value} -> Value
+    end.
 
-%% @doc
+%% @doc Retrieve the given environment variable
+%% If the variable does not exist, the function will return the default value passed as parameter
 get(Key, Default) ->
-    application:get_env(lynkia, Key, Default).
+    case application:get_env(lynkia, Key) of
+        {ok, Value} -> Value;
+        _ -> Default
+    end.
 
-%% @doc
+%% @doc Set the given environment variable to the given value
 set(Key, Value) ->
     application:set_env(lynkia, Key, Value).

@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc This module starts the Lynkia application.
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -12,7 +12,7 @@
     stop/1
 ]).
 
-%% @doc
+%% @doc Start the main supervisor
 start(_StartType, _StartArgs) ->
     case application:ensure_all_started(lasp) of
         {ok, _} -> lynkia_sup:start_link()

@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc The module module contains the logic of the map phase.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -70,7 +70,6 @@ add_pairs(Acc, Pairs) ->
 
 -ifdef(TEST).
 
-%% @doc
 map_lasp_adapter_test() ->
 
     lasp_sup:start_link(),
@@ -102,7 +101,6 @@ map_lasp_adapter_test() ->
     ),
     ok.
 
-%% @doc
 map_cvs_adapter_test() ->
 
     Options = #options{
@@ -134,7 +132,6 @@ map_cvs_adapter_test() ->
     ),
     ok.
 
-%% @doc
 map_multiple_adapters_test() ->
 
     Options = #options{

@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%% @doc
+%% @doc This module has the responsibility to create batches and dispatch them.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
@@ -15,23 +15,25 @@
     start/3
 ]).
 
-%% @doc
+%% @doc Start the dispatching of the pairs
 start(Pairs, Reduce) ->
     start(Pairs, Reduce, #options{
-        max_round = 20,
-        max_batch_size = 100,
-        timeout = 5000
+        max_round = lynkia_config:get(mapreduce_max_round),
+        max_batch_size = lynkia_config:get(mapreduce_max_batch_size),
+        timeout = lynkia_config:get(mapreduce_round_timeout)
     }).
 
-%% @doc
+%% @doc Start the dispatching of the pairs
 start(Pairs, Reduce, Options) ->
     N = dispatch(Pairs, Reduce, Options),
+    io:format("Number of batches = ~p~n", [N]),
+    io:format("Self=~p~n", [self()]),
     receive_all(#{
         jobs => N,
         accumulator => []
     }, Reduce, Options).
 
-%% @doc
+%% @doc The function will collect all pairs produced
 receive_all(State, Reduce, Options) ->
     receive
         {add, Pairs} ->
@@ -62,10 +64,12 @@ receive_all(State, Reduce, Options) ->
         case State of #{jobs := N} ->
             io:format("Remainging jobs=~p~n", [N])
         end,
-        {error, no_activity}
+        lynkia_spawn:debug(),
+        receive_all(State, Reduce, Options)
     end.
 
-%% @doc
+%% @doc Add the pair to the accumulator.
+%% The function will filter the pairs that do not respect the format {Key, Value}.
 add_pairs(Acc, Pairs) when erlang:is_list(Pairs) ->
     Acc ++ lists:filter(fun(Pair) ->
         case Pair of
@@ -76,7 +80,9 @@ add_pairs(Acc, Pairs) when erlang:is_list(Pairs) ->
 add_pairs(Acc, Pairs) ->
     add_pairs(Acc, [Pairs]).
 
-%% @doc
+%% @doc First pass of the shuffle
+%% The function will produce batches of size n
+%% The batch produced will be pure (no different keys within the same batch) 
 first_pass(Pairs, Reduce, Options) ->
     Limit = Options#options.max_batch_size - 1,
     lists:foldl(fun(Pair, {N, Orddict}) ->
@@ -91,7 +97,11 @@ first_pass(Pairs, Reduce, Options) ->
         end
     end, {0, orddict:new()}, Pairs).
 
-%% @doc
+%% @doc This function will be used to fill a batch
+%% L1 - Remaining pairs
+%% L2 - Rejected pairs
+%% Batch - Batch
+%% Options - Options
 form_batch(L1, L2, Batch, Options) ->
     case L1 of
         [] -> {Batch, L2};
@@ -110,7 +120,10 @@ form_batch(L1, L2, Batch, Options) ->
             end
     end.
 
-%% @doc
+%% @doc The function will form a batch of size N
+%% L - Remaining pairs
+%% Reduce - Reduce function
+%% Options - Options
 form_batches(L1, N, Reduce, Options) ->
     case form_batch(L1, [], [], Options) of
         {Batch, L2} ->
@@ -121,14 +134,17 @@ form_batches(L1, N, Reduce, Options) ->
             _ -> M end
     end.
 
-%% @doc
+%% @doc Second pass of the algorithm
+%% The function will produce batches from the remaining pairs
+%% The batch produced will be impure (there might be different keys within the same batch)
 second_pass(Groups, Reduce, Options) ->
     L = lists:sort(fun({_, P1}, {_, P2}) ->
         erlang:length(P1) > erlang:length(P2)
     end, Groups),
     form_batches(L, 0, Reduce, Options).
 
-%% @doc
+%% @doc Group pairs per key
+%% The function will produce that will associate to each key, the list of pairs having this key.
 group_pairs_per_key(Pairs) ->
     Groups = lists:foldl(fun(Pair, Orddict) ->
         case Pair of {Key, Value} ->
@@ -137,7 +153,7 @@ group_pairs_per_key(Pairs) ->
     end, orddict:new(), Pairs),
     orddict:to_list(Groups).
 
-%% @doc
+%% @doc Return a function that perform the reduction
 reduce(Reduce) ->
     fun(Batch) ->
         Groups = group_pairs_per_key(Batch),
@@ -146,7 +162,7 @@ reduce(Reduce) ->
         end, Groups)
     end.
 
-%% @doc
+%% @doc Schedule a task to perform the reduction
 start_reduction(Batch, Reduce) ->
     Self = self(),
     lynkia:spawn(reduce(Reduce), [Batch], fun(Result) ->
@@ -166,13 +182,13 @@ start_reduction(Batch, Reduce) ->
         end
     end).
 
-%% @doc
+%% @doc Form batch 
 dispatch(Pairs, Reduce, Options) ->
     {N, Groups} = first_pass(Pairs, Reduce, Options),
     M = second_pass(Groups, Reduce, Options),
     N + M.
 
-%% @doc
+%% @doc Split the given pairs in two batches
 split_batch(Pairs, Reduce) ->
     N = erlang:length(Pairs),
     Options = #options{
@@ -294,4 +310,4 @@ add_pairs_test() ->
 -endif.
 
 % To launch the tests:
-% rebar3 eunit --module=lynkia_mr_dispatcher
+% rebar3 eunit --module=lynkia_mapreduce_dispatcher

@@ -22,7 +22,31 @@
     ]},
 
     {lynkia, [
-        {task_distribution_strategy, lynkia_pull_strategy}
+        %% Broadcast
+        {fanout, 2},
+        {broadcast_ets_gc_interval, 3000},
+        {broadcast_ets_ttl, 4000},
+        
+        %% MapReduce
+        {mapreduce_broadcast_interval, 3},
+        {mapreduce_gc_interval, 3000},
+        {mapreduce_ttl, 4000},
+        {mapreduce_max_round, 10},
+        {mapreduce_max_batch_size, 10},
+        {mapreduce_round_timeout, 3000},
+        {mapreduce_observer_min_timeout, 5000},
+        {mapreduce_observer_max_timeout, 10000},
+        {mapreduce_leader_heartbeat_delay, 1000},
+
+        %% Task model
+        {task_distribution_strategy, lynkia_push_strategy},
+        {pull_stealing_threshold, 5},
+        {pull_steal_interval, 1000},
+        {pull_number_of_tasks_to_steal, 100},
+        {forwarding_threshold, 5},
+        {task_workers, 1},
+        {task_max_computation_time, 5000},
+        {task_max_memory_usage, 0}
     ]},
 
     {kernel, [

@@ -1,8 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc Lynkia_broadcast supervisor
+%% @doc Lynkia_broadcast supervisor.
 %% @author Julien Banken and Nicolas Xanthos
 %% @end
 %%%-------------------------------------------------------------------
+
 -module(lynkia_broadcast_sup).
 -behaviour(supervisor).
 -export([
@@ -12,13 +13,13 @@
     start_link/0
 ]).
 
-%% @doc
+%% @doc Start the supervisor
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 % Supervisor:
 
-%% @doc
+%% @doc Initialize the supervisor
 init([]) ->
     SupFlags = #{
         strategy => one_for_one,

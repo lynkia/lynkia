@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc 
+%%% @doc This module contains helpers functions
 %%%
 %%% @author Julien Banken and Nicolas Xanthos
 %%% @end
@@ -20,29 +20,33 @@
     choose/1
 ]).
 
-%% @doc
+%% @doc Return the name of the node.
 myself() ->
     Manager = partisan_peer_service:manager(),
     case Manager:myself() of
         #{name := Name} -> Name
     end.
 
-%% @doc
+%% @doc Connect the node with the given node.
 join(Name) ->
     partisan_peer_service:join(Name).
 
-%% @doc
+%% @doc Return the local view of the node.
+%% The list will contain the name of the node
 members() ->
     partisan_peer_service:members().
 
-%% @doc
+%% @doc Return the local view of the node.
+%% The list will not contain the name of the node.
 get_neighbors() ->
     case members() of {ok, Members} ->
         Name = myself(),
         Members -- [Name]
     end.
 
-%% @doc
+%% @doc Repeat the given callback function n times.
+%% The callback function will take one parameter:
+%% A number indicating how many times the function has already been executed
 repeat(N, CallBack) ->
     repeat(0, N, CallBack).
 repeat(K, N, CallBack) when N > 0 ->
@@ -50,16 +54,17 @@ repeat(K, N, CallBack) when N > 0 ->
     repeat(K + 1, N - 1, CallBack);
 repeat(_, N, _) when N =< 0 -> ok.
 
-%% @doc
+%% @doc Return the content of a CRDT variable
 query(ID) ->
     {ok, Set} = lasp:query(ID) ,
     sets:to_list(Set).
 
-%% @doc
+%% @doc Return the current timestamp
 now() ->
     erlang:system_time(millisecond).
 
-%% @doc
+%% @doc Choose one value at random from a list.
+%% Each element will have the same probability of being selected
 choose([]) -> error;
 choose([_|_] = List) ->
     Length = erlang:length(List),
