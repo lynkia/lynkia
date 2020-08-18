@@ -17,7 +17,6 @@ _build
 *.iml
 rebar3.crashdump
 *~
-rebar.lock
 *.todo
 _checkout
 doc
