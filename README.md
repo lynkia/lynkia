@@ -1,44 +1,65 @@
 # Lynkia
 
+<!-- What is Lynkia ? -->
+
+Lynkia is a library to make large-scale computation on a peer-to-peer network composed of IoT devices. The library provides a resilient MapReduce algorithm and a task model designed to run on the extreme edge of the network.
+
+## Assumptions
+
+- Dynamic membership
+- Unreliable network
+- Limited computing power
+- Limited storage
+
+## Features
+
+- Modular
+- Configurable
+
+## Overview
+
+### MapReduce
+
+```erlang
+Adapters = [
+    {lynkia_mapreduce_adapter_csv, [
+        {"dataset/test.csv", fun(Tuple) ->
+            case Tuple of #{
+                temperature := Temperature,
+                country := Country
+            } -> [{Country, erlang:list_to_integer(Temperature)}];
+            _ -> [] end
+        end}
+    ]}
+],
+
+Reduce = fun(Key, Values) ->
+    [{Key, lists:max(Values)}]
+end,
+
+lynkia:mapreduce(Adapters, Reduce, fun(Result) ->
+    case Result of {ok, Pairs} ->
+        io:format("Pairs=~p~n", [Pairs])
+    end
+end).
+```
+
+This query will compute the maximal tempertature of each country.
+
+### Task model
+
+```erlang
+lynkia:spawn(fun() -> 
+    42
+end, [], fun(Result) ->
+    io:format("Result ~p~n", [Result]) % Print "Result 42"
+end)
+```
+
 ## Installation
 
-Step 1: Install erlang
+You will find in our [wiki](https://github.com/lynkia/lynkia/wiki/Getting-started) all the instructions to install the dev tools. We will also explain how to deploy the library on a [GRiSP](https://www.grisp.org/) board.
 
-Step 2: Clone the repository
+## License
 
-```
-git clone https://github.com/lynkia/lynkia.git
-```
-
-## Getting started
-
-### Shell
-
-Step 1: Start the nodes.
-
-Open two different terminals.
-
-On the first one, type:
-
-`rebar3 shell --name lynkia1@127.0.0.1 --apps lynkia`
-
-On the second one, type:
-
-`rebar3 shell --name lynkia2@127.0.0.1 --apps lynkia`
-
-Step 2: Link the nodes
-
-You can either:
-
-- Enter `lynkia_utils:join('lynkia1@127.0.0.1').` on `lynkia2`
-- Enter `lynkia_utils:join('lynkia2@127.0.0.1').` on `lynkia1`
-
-Step 3: Verify that your two nodes are connected
-
-`lynkia_utils:members().`
-
-## Generate the documentation
-
-```
-rebar3 edoc
-```
+This software is licensed under the Apache 2.0 LICENSE.
